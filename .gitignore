@@ -1,0 +1,9 @@
+data/
+third_party/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.env
+results/m1_check/
+.venv/
+results/visdial_check/

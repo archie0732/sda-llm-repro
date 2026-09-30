@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdarepro"
+version = "0.1.0"
+description = "Small-scale re-examination of SDA-LLM (IROS 2025) on ARKitScenes with Claude"
+requires-python = ">=3.10"
+dependencies = ["numpy", "pillow", "opencv-python-headless", "anthropic", "pandas", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+detect = ["ultralytics"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -1,0 +1,324 @@
+# SDA-LLM 小規模重新檢驗 實驗計畫書
+
+作者 許育祁（archie0732）　版本 v2　2026-09-30（v2 加入 IROS 正式版比對，以及作者公開資料的 Track V）
+
+這份計畫書是給 Claude Code 直接照著執行的。每一個里程碑都有驗收標準，做完一個再做下一個。程式碼的起始版本已經在 `src/sdarepro/`，核心邏輯用合成資料測過，作者公開資料的讀取也已經在真實檔案上測過。ARKitScenes 的讀取在 M1 用 42446103 驗證過（見 results/LOG.md）。
+
+---
+
+## 0. 一句話目標
+
+我想用 Claude 在小規模上重做 SDA-LLM（IROS 2025，曾煜棋老師實驗室）的第二層「語言對應到物件」。第一步直接用作者在 GitHub 公開的資料（Track V），第二步用 ARKitScenes 自動生成更多對話，補上論文沒有做的三個對照。第一個是純文字 baseline，第二個是多圖與拼圖的比較，第三個是機器人主動發問。最後再檢查論文沒有給演算法的跨圖去重。
+
+---
+
+## 1. 研究問題與預期
+
+| 編號 | 研究問題 | 對應實驗 | 我事先的猜測 |
+| --- | --- | --- | --- |
+| RQ0 | 用作者自己的 Office 資料換成 Claude，分數跟論文的 GPT-4o（T_A 0.86）差多少 | V1 | 會在同一個量級，但 15 組對話太少，差距只能當參考 |
+| RQ1 | 圖片到底有沒有幫上忙，還是物件清單加座標就夠了 | E1 對 E3、E4 | 只用幾何描述的對話，純文字可能跟看圖差不多。差距會出現在需要外觀的描述 |
+| RQ2 | 「只有 GPT-4o 能一次處理多張圖」在 2026 年還成立嗎，拼成一張圖真的比較差嗎 | E1、E2、E5 | 目前的 Claude 能直接吃 8 張圖。拼圖會因為縮小而掉分 |
+| RQ3 | 讓機器人自己發問，能不能用更少輪數找到目標 | E6 | 輪數會變少，但問題品質不穩 |
+| RQ4 | 跨圖去重沒做好時，後面的 VLM 能不能自己補救 | Phase 2 D1–D3 | 不能。外部研究 MV-RoboBench 顯示 VLM 很不擅長跨視角比對同一物件 |
+
+先把猜測寫下來，是為了避免看到結果後才改說法。結果跟猜測不同也照實寫。
+
+---
+
+## 2. 與原論文的差異
+
+| 項目 | 原論文 | 本計畫 | 原因 |
+| --- | --- | --- | --- |
+| 場景 | 自己拍的 5 個空間 | Track V 用作者公開的 Office（Type A）與 8 個 Type B 場景，Track R 用 ARKitScenes 驗證集中挑出的 25–40 個場景 | 公開資料只有 55 組對話，而且 Type B 沒有 ID，需要第二個資料來源做對照實驗 |
+| 8 張環景 | 機器人原地每 45° 拍一張 | 從手持錄影中找一個「站點」，每 45° 挑最接近的一幀 | 資料集沒有原地旋轉的錄影 |
+| 第一層定位 | YOLOv8＋SAM＋深度換算 | Phase 1 直接用標註的 3D 框投影（等於完美偵測與完美去重），Phase 2 才換成偵測器 | 先把第二層的變因隔離出來 |
+| 對話 | 人依固定模式撰寫，65 組 | 從幾何關係自動生成，每句都附正解候選集合。另可選做 20–30 組人寫的對話 | 自動生成才能大量又可重現 |
+| 模型 | GPT-4o | Claude（新舊或大小兩個等級），選配開源 VLM | 手上的 API key 是 Claude |
+| 指標 | T_A、T_B | 相同公式，另外記錄輪數、token 與延遲 | 可以直接跟論文對照 |
+
+---
+
+## 3. 資料
+
+### 3.0 作者公開的 VisDial（Track V）
+
+IROS 正式版附了專案頁 https://github.com/CKL9001/SDA-LLM （最後更新 2026-01-10），裡面有資料集與 notebook。用 `scripts/fetch_visdial.sh` 下載到 `third_party/`，讀取程式是 `src/sdarepro/visdial.py`，已在真實檔案上測過。
+
+| 部分 | 公開內容 | 能做什麼 |
+| --- | --- | --- |
+| Type A Office | 8 張 1080×1080 影像、每張的 LabelMe 框（名稱已跨圖去重）、物件地圖座標、每張的機器人位姿、15 組對話與答案 | 完整重跑 E1–E4，包含純文字 baseline |
+| Type A Meeting room I | 影像、框、座標，但**沒有對話檔** | 只能當 E6 或人寫對話的場景 |
+| Type B（8 個資料夾各 5 組） | 8 張原始照片與每輪的「符合物件數量」 | 沒有框、ID 與答案身分，只能比對數量，最後一輪要人工確認 |
+
+我讀資料時發現幾件事，報告和面談時要照實說，也要當成請教的問題。
+1. 資料夾名稱看起來跟論文對調了。`Classroom_1` 的內容是約 150 張椅子的餐廳（正是論文 Fig. 6b 的例子），`Cafeteria_2` 則是放螢幕和環形燈的辦公室。論文第五節的「Classroom 1 個拍攝點 5 組、Cafeteria 4 個拍攝點 20 組」也跟 Table I（Classroom-1 到 4、Cafeteria-1 到 3）對不起來，對調後才吻合。
+2. 論文說 Meeting room II 有 3 個拍攝點 15 組對話，公開的是 1 個資料夾 5 組。Meeting room I 的 10 組對話沒有公開。
+3. Office 的座標表少了 `whiteboard_2`，文字條件會把它的位置標成 unknown。
+4. Type B 照片的解析度是 5712×4284 或直式，看起來是手機拍的，不是機器人上的 Femto Bolt（Type A 是 1080×1080 裁切）。
+5. 公開的 `img_bounding_box_number.ipynb` 是每偵測到一個物件就把該類別的計數加一，**沒有跨圖去重**。但 Type A 的 LabelMe 框名稱是去重過的（`whiteboard2` 同時出現在第 2、3 張）。我推測評估用的是人工標註的框，這點要請教作者。
+6. repo 沒有授權檔，所以只供個人研究，不能把它的圖片放進我們的 repo 或公開結果頁。
+
+### 3.1 為什麼另外用 ARKitScenes（Track R）
+
+它是 Apple 公開的真實室內 RGB-D 資料集，接受授權條款就能下載，不用申請（授權為非商業研究用途，見 [LICENSE](https://github.com/apple/ARKitScenes/blob/main/LICENSE)）。它有相機軌跡、內參、深度，以及 17 類物件的 3D 有向框，包含 chair、table、sofa、stool、cabinet、shelf、bed、refrigerator、tv_monitor 等。這些正好是論文關心的「很多張一樣的椅子」情境。
+
+另一個選項是 ScanNet v2 加上 Nr3D（有教室、會議室，還有人寫的指涉描述，最貼近論文），但必須寄使用同意書申請。我把它列為延伸，程式已經用「準備好的場景資料夾」隔開資料來源，之後只要多寫一個 loader。
+
+### 3.2 要下載的檔案
+
+只用驗證集（Validation，549 支影片），從 raw 資料下載以下資產。
+
+| 資產 | 用途 |
+| --- | --- |
+| `<id>_3dod_annotation.json` | 物件 3D 框（先只下載這個來挑場景，很小） |
+| `lowres_wide.traj` | 相機軌跡（時間、軸角、平移） |
+| `vga_wide.zip` 與 `vga_wide_intrinsics.zip` | 640×480 彩色影像與內參，給 VLM 看 |
+| `lowres_depth.zip` 與 `lowres_wide_intrinsics.zip` | 256×192 深度（毫米）與內參，用來判斷遮擋與 Phase 2 反投影 |
+
+指令已寫在 `scripts/download_arkit.sh`。先下載 3 支影片估計每支大小，再決定要下載幾支。
+
+### 3.3 挑場景的規則
+
+`scripts/select_scenes.py` 的條件如下。
+1. 至少一個類別有 3 個以上的實例（例如 3 張椅子），這樣才有歧義。
+2. 至少 2 個只出現一次的其他類別，可以當地標（例如「沙發」、「冰箱」）。
+3. 準備階段再過濾一次，8 個方位至少要湊到 6 個（`min_coverage=6`），而且至少要能生成一組對話。
+
+目標是挑 40 支、最後可用約 25–30 支，每支生成 Type A 與 Type B 各 3 組，共約 150–180 組對話。
+
+---
+
+## 4. 前處理流程
+
+### 4.1 座標慣例
+
+- 世界座標是公尺、重力對齊。上方軸由位姿自動判斷（`geometry.estimate_up_axis`），不要寫死。手機可能直拿或橫拿（metadata 的 `sky_direction` 有 Up、Down、Left、Right），所以世界上方可能對應相機的 −y 或 ±x。做法是對相機 x 軸與 y 軸各自取平均，看哪一個世界軸的平均絕對值最大，因為上方軸在整支影片中方向固定，水平軸會隨轉身互相抵銷。v1 原本只看相機 −y，M1 在直拿錄的 42446103 上判成錯的軸，因此改掉。
+- 相機座標是 OpenCV 慣例（x 右、y 下、z 前）。`Frame.pose` 是相機到世界的 4×4 矩陣，解析方式跟官方 `TrajStringToMatrix` 相同（已用測試驗證）。
+- 3D 框的 `normalizedAxes` 以「列」為框的三個軸，跟官方 `box_utils.compute_box_3d` 相同。v1 誤用「行」，斜放的物件（例如 45° 的椅子）框會轉錯方向，M1 用真實影像比對後改正。
+- 直拿錄的影片，原始影像是側躺的。前處理依位姿算出要順時鐘轉幾度（`geometry.image_rotation_cw`），只在存圖時把影像和框一起轉正，給模型看的圖都是正的。`scene.json` 裡的 `view_boxes` 仍是原始影像座標，轉的角度記在 `image_rot_cw`。
+- 機器人座標以第 0 張圖的朝向為前方（x_forward），左方為正（y_left）。
+
+### 4.2 步驟與對應模組
+
+1. **讀場景**（`arkit.load_scene`）。依時間戳把每張 vga 影像對到最近的軌跡位姿（誤差 50 ms 以內），深度也用同樣方式對到最近的一張。
+2. **選 8 個視角**（`views.select_views`）。在相機走過的位置中找一個站點，使半徑 1 m 內的幀涵蓋最多 45° 方位格，每格挑離站點近、朝向準的一幀。
+3. **給 ID**（`annotate.assign_ids`）。依物件相對站點的方位角順時鐘編號 #1…#N，順序固定，也不會暗示目標。
+4. **可見性**（`annotate.compute_view_boxes`）。把 3D 框投影到每張圖，框中心要在畫面內、面積至少 150 像素，並用深度做簡單遮擋判斷。8 張圖都看不到的物件不列入候選。
+5. **畫標註圖**（`annotate.render_views`）。統一顏色畫框，左上角畫 `#id`。顏色刻意不分類別，避免顏色洩漏類別資訊。
+6. **生成對話**（`dialogue.gen_type_b`、`gen_type_a`），規則見 4.3。
+7. **存檔**（`prepare.prepare_scene`），輸出到 `data/prepared/<video_id>/`。
+
+### 4.3 對話生成規則
+
+候選集合一律只看可見物件。地標必須是場景中唯一的類別，這樣「沙發」才不會本身又有歧義。
+
+| 限制類型 | 例句 | 成立條件 |
+| --- | --- | --- |
+| near | I mean the one near the sofa. | 中心距離 ≤ 1.2 m。若有候選落在 1.2–1.5 m 的模糊帶，這句就不用 |
+| closest_to 與 farthest_from | It's the one closest to the fridge. | 在目前剩下的候選中比較，第一名要比第二名多 0.3 m 以上 |
+| closest_to_robot 與 farthest_from_robot | The one closest to you. | 同上，以站點為準 |
+| tallest | It's the tallest one. | 最高的要比第二高多 0.15 m 以上 |
+| ego_side（選配，E7 才開） | The one on your left. | 以機器人第 0 張圖的朝向為準，這種說法本身就有參考座標歧義 |
+
+**Type B** 第一句只說類別（Please go to the chair.），之後每句都要讓候選變少，70% 的機率優先選「變少但還沒剩一個」的句子，模擬逐步縮小，最多 5 句。
+
+**Type A** 第一句就已經唯一（Help me find the chair closest to the sofa.），後面再補 1–3 句對目標也成立的描述（Also, it is the tallest chair.）。
+
+每句都存正解集合 `gt_set`，這是 NS 指標需要的。
+
+### 4.4 已知的偏差（寫報告時要主動說）
+
+自動生成的對話全部來自幾何關係，而純文字條件拿到的物件表也含座標。所以 E3 有「題目本來就能從表格算出來」的優勢。為了公平，我會加做一小組人寫的對話（E3b），用只有看圖才知道的外觀描述，例如「有扶手的那張」、「深色那張」。
+
+---
+
+## 5. 實驗設計
+
+### 5.0 Track V 作者資料（最先做）
+
+| 編號 | 資料 | 條件 | 指標 |
+| --- | --- | --- | --- |
+| V1 | Office 15 組 Type A | `multi_image`、`grid`、`text_only`、`multi_image_text` | T_A，直接對照論文 Table I 的 Office（SR 0.866、AS 0.835、T_A 0.86） |
+| V2 | Type B 40 組 | `count`（`run_count_dialogue`） | 每輪數量完全正確的比例、最後一輪是否剛好為 1。最後一輪為 1 的對話由我人工看 `where` 欄位判斷有沒有指對 |
+
+V1 的影像標籤沿用作者程式的樣式（`chair 3`），提示詞用作者 notebook 裡的原文，這樣才算重現。Office 的對話大多是「桌上有檯燈的那張椅子」這種要看桌面物品的描述，物件表裡沒有這些東西。所以我預期純文字條件在 V1 會明顯輸，正好跟 Track R 的幾何描述形成對比。這組對比就是 RQ1 的核心。
+
+作者程式每一輪都重送 8 張圖，我們只在第一輪送、之後讀快取。這對模型看到的內容沒有影響，只影響費用，報告時註明即可。
+
+### 5.1 Track R 條件總表（ARKitScenes）
+
+| 編號 | 條件名稱（程式參數） | 給模型的東西 | 回答的問題 |
+| --- | --- | --- | --- |
+| E1 | `multi_image` | 8 張標註圖分開送，每張前面附方位說明 | 重現論文設定 |
+| E2 | `grid` | 8 張拼成一張 2×4（每格寬 320 px） | 論文說拼圖會糊，實際差多少 |
+| E3 | `text_only` | 只有物件表（ID、類別、前方距離、左方距離、到機器人距離、高度） | 論文缺的 baseline |
+| E3b | `text_only` 與 `multi_image` | 20–30 組人寫、含外觀描述的對話 | 修正 4.4 的偏差 |
+| E4 | `multi_image_text` | E1 加上物件表 | 兩種資訊合起來是否最好 |
+| E5 | E1 與 E3 換另一個 Claude 等級 | 同上 | 模型大小的影響。選配開源 VLM（例如 Qwen2.5-VL-7B，需 GPU） |
+| E6 | `active` | 只給第一句，機器人可以發問，另一個 Claude 扮演使用者 | 主動發問能否更快找到目標 |
+| E7 | 開啟 `--egocentric` 重新生成對話，跑 E1 | 含「在你左邊」這類描述 | 參考座標歧義（連結 AlloEgo-VLM） |
+
+### 5.2 對話流程
+
+1. 第 1 輪的使用者訊息包含所有圖片或物件表，加上第一句話。之後每輪只加一句新的使用者話。
+2. 模型每輪都回 JSON，格式為 `{"candidate_ids": [...], "count": n, "reason": "..."}`。
+3. 模型第一次只回一個 ID 時就停止，因為機器人會直接開過去，錯了就是錯了。對話講完還沒剩一個也停止。
+4. 圖片只在第 1 輪送一次，並在最後一張圖加 prompt caching，後續輪數讀快取。
+5. temperature 設 0。所有提示詞都集中在 `src/sdarepro/prompts.py`，其中影像條件的核心指令直接引用論文圖 6 的原文。
+
+### 5.3 E6 主動發問的設定
+
+- 機器人（Claude，看 8 張圖）每輪選擇 `ask`（問一個問題）或 `go`（給出唯一 ID），最多 5 輪。
+- 使用者由另一個 Claude 扮演，只拿到「關於目標的真實事實清單」（`dialogue.target_facts`，由幾何算出，不含任何 ID），規定只能根據事實作答。
+- 同一批目標跟 E1 的 Type B 對話比較，看成功率與輪數。
+- 另外抽 20 組人工檢查模擬使用者有沒有洩漏答案或亂答，並記錄比例。
+
+---
+
+## 6. Phase 2 跨圖去重
+
+IROS 正式版多寫了一句，說重複物件是「依據彼此極近的距離」刪除，但沒有給門檻或演算法，公開程式裡也沒有這段（見 3.0 第 5 點）。這一段要回答「去重做不好時會怎樣」。
+
+| 方法 | 做法 |
+| --- | --- |
+| D0 oracle | 標註框投影，同一物件天生同一 ID（Phase 1 用的就是這個） |
+| D1 不去重 | 每張圖的每個框都當成不同物件 |
+| D2 幾何去重 | 用框中心內側 40% 區域的深度中位數反投影到 3D，同類別且距離小於 τ 就合併（union-find），τ 掃 0.3、0.5、0.8 m |
+| D3 VLM 去重（選配） | 把 8 張圖給 Claude，請它標出哪些標籤是同一個物件 |
+
+偵測來源分兩種。`gt` 用標註框，只測去重本身。`yolo` 用 YOLOv8（跟論文一樣），COCO 類別對應到 ARKitScenes 類別。
+
+指標為同物件連結的 precision、recall、F1，以及物件數量誤差。延伸實驗是把 D1、D2 的結果重新畫成標註圖，再跑一次 E1，看 T_B 掉多少。這一步要改 `prepare.py`，讓 ID 來自去重結果。
+
+---
+
+## 7. 指標
+
+公式照論文（arXiv 2410.12802v1 第五節），實作在 `src/sdarepro/metrics.py`，已有單元測試。
+
+- Type A 用 SR = (k − (α − 1)) / k、AS = (1/α) Σ [目標在預測中] / |預測|，T_A = 0.8 SR + 0.2 AS。沒找到時全部為 0。
+- Type B 用 AR（最後是否剛好只剩目標），NS 為每輪 Jaccard(正解集合, 預測集合) 的平均，T_B = 0.6 AR + 0.4 NS。
+- α 是實際用掉的輪數，k 是對話總長度。
+
+IROS 正式版把這兩點寫清楚了。「1(found)」是目標有沒有在這輪的預測集合裡，沒找到時 α = k + 1，所以 SR 為 0。我們的實作與正式版一致。
+
+統計方法如下。
+- 每個條件報平均與 95% bootstrap 信賴區間。
+- 條件之間用「同一組對話」做配對比較，分數差用配對 bootstrap，成功與否用精確符號檢定。
+- Type A 和 Type B 分開報，不混在一起平均。
+- 對話數約 150 組，只能看出較大的差異，報告時不誇大。
+
+---
+
+## 8. 成本與時間估算
+
+Claude 的影像大約每 750 像素算 1 個 token，640×480 一張約 410 token，8 張約 3,300 token。一組對話平均 2–3 輪，每輪重送前文，但圖片走快取。
+
+| 項目 | 呼叫次數（約） | 輸入 token（約） |
+| --- | --- | --- |
+| Track V（V1 四條件＋V2） | 約 250 | 約 60 萬 |
+| E1、E4 各一次 | 各 400 | 各 150 萬 |
+| E2 | 400 | 50 萬 |
+| E3 | 400 | 30 萬 |
+| E5（第二個模型跑 E1、E3） | 800 | 180 萬 |
+| E6 | 600 | 150 萬 |
+
+總量約 700 萬輸入 token。以中階模型每百萬輸入 token 約 3 美元粗估，大約 20–30 美元，實際請以 Anthropic 官方價目表為準，快取會再降低。**每個條件都先用 `--limit 5` 試跑**，確認格式正確、花費合理再全跑。
+
+時間方面，下載與前處理約半天，全部實驗 API 呼叫約 2–4 小時（受速率限制影響）。
+
+---
+
+## 9. 專案結構
+
+```
+sda-llm-repro/
+  PLAN.md              本計畫書（實驗定義以此為準）
+  CLAUDE.md            給 Claude Code 的工作規則
+  README.md            英文簡介
+  pyproject.toml
+  src/sdarepro/
+    scene.py           資料結構
+    geometry.py        位姿、投影、上方軸、方位角
+    arkit.py           ARKitScenes 讀取
+    views.py           選 8 個視角
+    annotate.py        可見性、給 ID、畫標註圖、拼圖
+    dialogue.py        限制條件、Type A/B 生成、模擬使用者的事實
+    prompts.py         所有提示詞
+    vlm.py             Claude 客戶端與測試用假客戶端
+    runner.py          跑對話、主動發問模式
+    metrics.py         T_A、T_B
+    dedup.py           Phase 2 去重
+    visdial.py         作者公開資料（Track V）讀取
+    synth.py           合成房間（測試用）
+  scripts/
+    fetch_visdial.sh   下載作者公開資料
+    run_visdial.py     跑 Track V
+    download_arkit.sh  下載 ARKitScenes
+    select_scenes.py   挑場景
+    prepare_all.py     前處理
+    run_experiment.py  跑 E1–E6（可中斷續跑）
+    run_dedup.py       Phase 2
+    summarize.py       產生結果表
+    dry_run.py         不需資料與 API 的端到端檢查
+  tests/test_core.py
+  data/                不進 git
+  results/             summary.md、圖表與 raw JSONL
+```
+
+---
+
+## 10. 里程碑與驗收標準
+
+- [ ] **M0 環境**。`pip install -e ".[dev]"`，`pytest` 全過，`python scripts/dry_run.py` 印出 oracle 全部 1.00。
+- [ ] **M0.5 Track V**。執行 `fetch_visdial.sh`，`run_visdial.py --track A --save_images` 先試跑 3 組，請我確認 `results/visdial_check/` 的標籤清楚。接著跑完 V1 四個條件與 V2，寫進 `results/LOG.md`。這一步不用下載大型資料集，花費約 1–3 美元。
+- [ ] **M1 資料讀取驗證**。下載 3 支影片，對其中 1 支畫出投影框並存圖（`view_*_annot.jpg`）。**驗收標準是人眼確認框有套在物件上**。如果框整體偏移或上下顛倒，先檢查位姿方向與上方軸，修正後把這支影片的檢查加成測試。
+- [ ] **M2 挑場景與前處理**。完成 `select_scenes.py`、下載、`prepare_all.py`。驗收標準是至少 25 個場景可用、至少 120 組對話。隨機抽 10 組對話人工檢查描述是否正確，錯誤率要低於 10%，否則調整門檻。
+- [ ] **M3 試跑**。E1 與 E3 各 `--limit 5`，檢查 JSON 解析成功率要大於 95%，並記下實際 token 用量，重新估算總花費後再繼續。
+- [ ] **M4 主實驗**。跑完 E1–E4，執行 `summarize.py`，產出 `results/summary.md`。
+- [ ] **M5 延伸實驗**。E5、E6（含 20 組人工檢查）、E3b（人寫對話）、E7 視時間做。
+- [ ] **M6 Phase 2**。`run_dedup.py --source gt` 掃三個 τ，再做 `--source yolo`，產出去重結果表。
+- [ ] **M7 報告**。寫 `results/REPORT.md`，要有一張主結果表、兩張圖（各條件分數加信賴區間、每輪候選數下降曲線）、每個條件各 3 個成功與失敗案例的截圖，以及一段限制說明。
+
+---
+
+## 11. 風險與對策
+
+| 風險 | 對策 |
+| --- | --- |
+| 手持錄影湊不滿 8 個方位 | 最低接受 6 個，並在結果中記錄每個場景的涵蓋數 |
+| vga_wide 與軌跡時間戳對不上 | 放寬到 100 ms，或改用 lowres_wide（256×192，但畫質差） |
+| 住家場景椅子不夠多 | 放寬為 stool、cabinet、shelf 也可當目標類別。或申請 ScanNet |
+| 模型把 `#12` 看成 `#1` 或 `#2` | 標籤字體依圖寬放大，並統計「回答了不存在的 ID」的比例 |
+| 純文字條件佔便宜 | 見 4.4，用 E3b 人寫對話修正，報告時主動說明 |
+| 花費超出預期 | 一律先 `--limit 5`，結果檔可續跑，不會重複計費 |
+
+---
+
+## 12. 面談時要講的三件事
+
+1. 我重現了論文的第二層，並發現或驗證了「多圖限制」在現在的模型上是否仍然存在（依結果填）。
+2. 我補上了純文字 baseline，說明圖片在哪一類描述上真的有貢獻（依結果填）。
+3. 我把跨圖去重拆出來測，說明它對整體成功率的影響，並提出可以延伸到實驗室 VLA 計畫的想法。
+
+---
+
+## 附錄 A 自己拍照的流程（選配）
+
+如果之後想加一組真實教室的驗證，我會照這個流程拍。
+1. 選一間有很多同款椅子的教室，站在中間一點的位置，手機高度約 1.2 m 保持水平。
+2. 原地轉身，每 45° 拍一張，共 8 張，相鄰兩張要有部分重疊。第一張朝黑板。
+3. 用手機測距或捲尺記下 3–5 個地標的位置（講台、門、窗、垃圾桶）。
+4. 用標註工具（例如 Label Studio）在 8 張圖上框椅子並手動給一致的 ID，再寫 10 組對話。
+
+## 附錄 B 參考資料
+
+- SDA-LLM: Spatial DisAmbiguation via Multi-turn Vision-Language Dialogues for Robot Navigation，IROS 2025，DOI 10.1109/IROS60139.2025.11246115。預印本 arXiv 2410.12802。專案頁 https://github.com/CKL9001/SDA-LLM
+- FindThis，Majumdar et al., CoRL 2023（以外觀屬性多輪消歧，正式版列為最接近的前作）
+- ARKitScenes，Baruch et al., NeurIPS 2021 Datasets and Benchmarks，https://github.com/apple/ARKitScenes
+- Ask-to-Clarify，arXiv 2509.15061
+- CLUE，arXiv 2602.08999
+- MV-RoboBench（Seeing Across Views），arXiv 2510.19400
+- ConceptGraphs，arXiv 2309.16650
+- AlloEgo-VLM，arXiv 2608.15605
