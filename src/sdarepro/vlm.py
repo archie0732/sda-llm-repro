@@ -22,18 +22,28 @@ class Reply:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
     latency_s: float = 0.0
+    stop_reason: str = ""
 
 
 def parse_json(text: str) -> Optional[dict]:
-    """Take the first {...} block; tolerate code fences."""
-    m = re.search(r"\{.*\}", text, flags=re.S)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
+    """The LAST complete JSON object in the reply; tolerates code fences and prose around it.
+
+    Track V bug: a reply with a JSON answer followed by 'Correction to format: {...}' was read by a
+    greedy regex as one invalid block and scored as an empty answer. The last object is the model's
+    final word."""
+    dec, found, i = json.JSONDecoder(), None, text.find("{")
+    while i != -1:
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i = text.find("{", i + 1)
+            continue
+        if isinstance(obj, dict):
+            found = obj
+        i = text.find("{", end)
+    return found
 
 
 def norm_name(x) -> str:
@@ -75,7 +85,7 @@ class ScriptedClient(VLMClient):
         self.calls: list[tuple[str, list[dict]]] = []
 
     def respond(self, system: str, messages: list[dict]) -> Reply:
-        self.calls.append((system, messages))
+        self.calls.append((system, list(messages)))  # snapshot: the runner appends to its list afterwards
         r = self.replies.pop(0)
         return Reply(text=json.dumps(r), parsed=r)
 
@@ -95,11 +105,16 @@ class ClaudeClient(VLMClient):
 
     The model id is NOT hard-coded: pass it or set SDA_MODEL. Run
     `python -m sdarepro.vlm --list` to print the ids your key can use.
+
+    Sampling: current models reject a non-default temperature (and SDK 1.x has no `temperature`
+    argument), so PLAN.md 5.2 no longer sets temperature 0. Thinking is set by SDA_THINKING:
+    'between_tools' (default, thinking off, like the paper's GPT-4o), 'adaptive', or 'omit'
+    (send no thinking field, for models that do not know 'between_tools').
     """
 
     name = "claude"
 
-    def __init__(self, model: Optional[str] = None, max_tokens: int = 400, temperature: float = 0.0,
+    def __init__(self, model: Optional[str] = None, max_tokens: int = 400, thinking: Optional[str] = None,
                  cache_images: bool = True, max_retries: int = 5):
         import anthropic  # imported lazily so tests run without the SDK
 
@@ -108,13 +123,19 @@ class ClaudeClient(VLMClient):
         self.model = model or os.environ.get("SDA_MODEL")
         if not self.model:
             raise ValueError("set SDA_MODEL or pass model=...")
-        self.max_tokens, self.temperature = max_tokens, temperature
+        self.max_tokens = max_tokens
+        self.thinking = thinking or os.environ.get("SDA_THINKING", "between_tools")
+        if self.thinking not in ("between_tools", "adaptive", "omit"):
+            raise ValueError(f"SDA_THINKING must be between_tools, adaptive or omit, not {self.thinking!r}")
         self.cache_images, self.max_retries = cache_images, max_retries
 
     def _convert(self, messages: list[dict]) -> list[dict]:
         out = []
         last_image_pos = None
         for mi, m in enumerate(messages):
+            if m["role"] == "system":  # mid-conversation system message: plain text only
+                out.append({"role": "system", "content": " ".join(b["text"] for b in m["content"])})
+                continue
             blocks = []
             for b in m["content"]:
                 if b["type"] == "text":
@@ -136,14 +157,16 @@ class ClaudeClient(VLMClient):
         for attempt in range(self.max_retries):
             try:
                 t0 = time.time()
+                extra = {} if self.thinking == "omit" else {"thinking": {"type": self.thinking}}
                 r = self.client.messages.create(model=self.model, max_tokens=self.max_tokens,
-                                                temperature=self.temperature, system=system, messages=payload)
+                                                system=system, messages=payload, **extra)
                 text = "".join(getattr(b, "text", "") for b in r.content)
                 u = r.usage
                 return Reply(text=text, parsed=parse_json(text), input_tokens=u.input_tokens,
                              output_tokens=u.output_tokens,
                              cache_read_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
-                             latency_s=time.time() - t0)
+                             cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
+                             latency_s=time.time() - t0, stop_reason=r.stop_reason or "")
             except (anthropic.RateLimitError, anthropic.APIConnectionError, anthropic.InternalServerError):
                 time.sleep(2 ** attempt)
         raise RuntimeError("Claude API failed after retries")

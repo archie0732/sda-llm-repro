@@ -29,6 +29,13 @@ SYSTEM_IMAGES = (
     "one photo per heading. Every detected object has a box and an ID tag. " + PAPER_INSTRUCTION + " " + OUTPUT_RULES
 )
 
+# Condition C5 forced_choice: sent as a system message right after the user's LAST sentence only.
+FORCED_CHOICE = (
+    "This is the user's last sentence; there will be no more hints. The robot must now drive to one object. "
+    "Reply in the same JSON format, but candidate_ids must contain exactly one ID: the single most likely object, "
+    "even if you are not sure."
+)
+
 SYSTEM_TEXT_ONLY = (
     "You are the perception module of an indoor service robot. You cannot see images; you get a table of "
     "detected objects with their positions relative to the robot (x = metres forward, y = metres to the left). "

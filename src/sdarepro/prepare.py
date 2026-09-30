@@ -20,7 +20,7 @@ from PIL import Image
 
 from .annotate import (assign_ids, compute_view_boxes, make_grid, render_views, rotate_image_cw,
                        visible_object_ids)
-from .dialogue import GeoContext, gen_type_a, gen_type_b
+from .dialogue import TARGET_CLASSES, GeoContext, gen_type_a, gen_type_b
 from .geometry import camera_yaw_deg
 from .scene import Object3D, Scene
 from .views import select_views
@@ -50,15 +50,18 @@ def _obj_from_json(d: dict) -> Object3D:
 
 def prepare_scene(scene: Scene, out_root: str, n_bins: int = 8, min_coverage: int = 6,
                   dialogues_per_type: int = 3, seed: int = 0, use_depth: bool = True,
-                  allow_egocentric: bool = False, labels_keep: Optional[set[str]] = None) -> Optional[PreparedScene]:
-    """Returns None when the scene is unusable (poor heading coverage or no ambiguity)."""
+                  allow_egocentric: bool = False, labels_keep: Optional[set[str]] = None,
+                  target_classes: Optional[tuple[str, ...]] = TARGET_CLASSES) -> Optional[PreparedScene]:
+    """Returns None when the scene is unusable (poor heading coverage or no ambiguity).
+
+    `target_classes` limits which objects a dialogue may point at (None: any class)."""
     sel = select_views(scene, n_bins=n_bins)
     if sel.coverage < min_coverage:
         return None
     if labels_keep:
         scene.objects = [o for o in scene.objects if o.label in labels_keep]
     assign_ids(scene, sel.station_xy, sel.station_heading_deg)
-    vbs = compute_view_boxes(scene.objects, sel.frames, use_depth=use_depth)
+    vbs = compute_view_boxes(scene.objects, sel.frames, use_depth=use_depth, up_axis=scene.up_axis)
     vis = visible_object_ids(vbs)
     objects = [o for o in scene.objects if o.obj_id in vis]
     labels = {o.obj_id: o.label for o in objects}
@@ -69,7 +72,8 @@ def prepare_scene(scene: Scene, out_root: str, n_bins: int = 8, min_coverage: in
                      heading_deg=sel.station_heading_deg)
     rng = random.Random(seed)
     dialogues = []
-    ambiguous_targets = [o for o in objects if sum(p.label == o.label for p in objects) >= 2]
+    ambiguous_targets = [o for o in objects if sum(p.label == o.label for p in objects) >= 2
+                         and (target_classes is None or o.label in target_classes)]
     rng.shuffle(ambiguous_targets)
     for dtype, gen in (("B", gen_type_b), ("A", gen_type_a)):
         n = 0
@@ -103,6 +107,8 @@ def prepare_scene(scene: Scene, out_root: str, n_bins: int = 8, min_coverage: in
             "frame_ids": [f.frame_id for f in sel.frames], "coverage": sel.coverage,
             # view_boxes below are in the ORIGINAL image coordinates; saved jpgs are rotated by this
             "image_rot_cw": scene.image_rot_cw,
+            # depth-mode visibility (PLAN.md 4.2 step 4); None without depth
+            "up_vector": None if vbs[0].up is None else vbs[0].up.tolist(), "floor_height": vbs[0].floor_h,
             "objects": [_obj_to_json(o) for o in objects],
             "view_boxes": [{str(k): v for k, v in vb.boxes.items()} for vb in vbs]}
     json.dump(meta, open(os.path.join(d, "scene.json"), "w"), indent=1)

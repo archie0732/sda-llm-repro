@@ -1,0 +1,6 @@
+{"scene_id": "42446103", "source": "gt", "method": "none", "tau": 0.3, "n_dets": 23, "precision": 1.0, "recall": 0.0, "f1": 0.0, "n_pred_objects": 23, "n_gt_objects": 19, "count_error": 4}
+{"scene_id": "42446103", "source": "gt", "method": "geometric", "tau": 0.3, "n_dets": 23, "precision": 1.0, "recall": 0.75, "f1": 0.8571428571428571, "n_pred_objects": 20, "n_gt_objects": 19, "count_error": 1}
+{"scene_id": "42446103", "source": "gt", "method": "none", "tau": 0.5, "n_dets": 23, "precision": 1.0, "recall": 0.0, "f1": 0.0, "n_pred_objects": 23, "n_gt_objects": 19, "count_error": 4}
+{"scene_id": "42446103", "source": "gt", "method": "geometric", "tau": 0.5, "n_dets": 23, "precision": 1.0, "recall": 1.0, "f1": 1.0, "n_pred_objects": 19, "n_gt_objects": 19, "count_error": 0}
+{"scene_id": "42446103", "source": "gt", "method": "none", "tau": 0.8, "n_dets": 23, "precision": 1.0, "recall": 0.0, "f1": 0.0, "n_pred_objects": 23, "n_gt_objects": 19, "count_error": 4}
+{"scene_id": "42446103", "source": "gt", "method": "geometric", "tau": 0.8, "n_dets": 23, "precision": 0.6666666666666666, "recall": 1.0, "f1": 0.8, "n_pred_objects": 18, "n_gt_objects": 19, "count_error": -1}

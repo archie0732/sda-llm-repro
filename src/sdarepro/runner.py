@@ -5,6 +5,7 @@ Conditions (PLAN.md section 5):
     C2 grid              the 8 views pasted into one image
     C3 text_only         object table only, no image (the missing baseline)
     C4 multi_image_text  C1 + object table
+    C5 forced_choice     C1, but after the last user sentence a system message demands exactly one ID
     E6 active            robot may ask questions, simulated user answers
 """
 from __future__ import annotations
@@ -16,15 +17,16 @@ from typing import Optional
 from .dialogue import target_facts
 from .metrics import score_dialogue
 from .prepare import PreparedScene
-from .prompts import SIM_USER, SYSTEM_ACTIVE, SYSTEM_IMAGES, SYSTEM_TEXT_ONLY, object_table, view_caption
+from .prompts import (FORCED_CHOICE, SIM_USER, SYSTEM_ACTIVE, SYSTEM_IMAGES, SYSTEM_TEXT_ONLY, object_table,
+                      view_caption)
 from .vlm import Reply, VLMClient, ids_from
 
-CONDITIONS = ("multi_image", "grid", "text_only", "multi_image_text")
+CONDITIONS = ("multi_image", "grid", "text_only", "multi_image_text", "forced_choice")
 
 
 def context_blocks(cond: str, ps: PreparedScene) -> tuple[str, list[dict]]:
     blocks: list[dict] = []
-    if cond in ("multi_image", "multi_image_text"):
+    if cond in ("multi_image", "multi_image_text", "forced_choice"):
         for i, (img, h) in enumerate(zip(ps.images_annot, ps.view_headings_rel)):
             blocks.append({"type": "text", "text": view_caption(i, h)})
             blocks.append({"type": "image", "image": img})
@@ -45,11 +47,16 @@ def run_dialogue(client: VLMClient, cond: str, ps: PreparedScene, dlg: dict,
     for i, turn in enumerate(dlg["turns"]):
         content = (ctx_blocks if i == 0 else []) + [{"type": "text", "text": f"User: {turn['text']}"}]
         messages.append({"role": "user", "content": content})
-        r: Reply = client.respond(system, messages)
+        send = messages
+        if cond == "forced_choice" and i == len(dlg["turns"]) - 1:
+            # a mid-conversation system message keeps the cached images valid (the top-level system would not)
+            send = messages + [{"role": "system", "content": [{"type": "text", "text": FORCED_CHOICE}]}]
+        r: Reply = client.respond(system, send)
         ids = ids_from(r.parsed, ps.name_map)
         preds.append(ids)
         replies.append({"text": r.text, "in": r.input_tokens, "out": r.output_tokens,
-                        "cache_read": r.cache_read_tokens, "latency": r.latency_s})
+                        "cache_read": r.cache_read_tokens, "cache_write": r.cache_write_tokens,
+                        "latency": r.latency_s, "stop": r.stop_reason})
         messages.append({"role": "assistant", "content": [{"type": "text", "text": r.text}]})
         if stop_on_singleton and len(ids) == 1:
             break
@@ -112,7 +119,9 @@ def run_count_dialogue(client: VLMClient, bundle: dict, dlg: dict) -> dict:
             n = int((r.parsed or {}).get("count"))
         except (TypeError, ValueError):
             n = None
-        per_turn.append({"gt": t["count"], "pred": n, "where": (r.parsed or {}).get("where", ""), "in": r.input_tokens})
+        per_turn.append({"gt": t["count"], "pred": n, "where": (r.parsed or {}).get("where", ""), "in": r.input_tokens,
+                         "out": r.output_tokens, "cache_read": r.cache_read_tokens,
+                         "cache_write": r.cache_write_tokens, "stop": r.stop_reason, "text": r.text})
         messages.append({"role": "assistant", "content": [{"type": "text", "text": r.text}]})
     exact = [p["pred"] == p["gt"] for p in per_turn]
     return {"dialogue_id": dlg["dialogue_id"], "scene_id": bundle["scene_id"], "cond": "count", "dtype": "B",

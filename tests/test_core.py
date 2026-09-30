@@ -181,10 +181,44 @@ def test_metrics_values():
     assert b["T_B"] == pytest.approx(0.6 + 0.4 * 0.875)
 
 
+def test_claude_client_sends_no_temperature(monkeypatch):
+    # M0.5: SDK 1.x has no `temperature` argument and current models reject non-default sampling
+    from types import SimpleNamespace
+    from sdarepro.vlm import ClaudeClient
+    sent = {}
+
+    def create(**kw):
+        sent.update(kw)
+        return SimpleNamespace(content=[SimpleNamespace(text='{"candidate_ids": [1]}')], stop_reason="end_turn",
+                               usage=SimpleNamespace(input_tokens=5, output_tokens=3, cache_read_input_tokens=0,
+                                                     cache_creation_input_tokens=0))
+
+    monkeypatch.setenv("SDA_API_KEY", "test")
+    monkeypatch.setenv("SDA_MODEL", "some-model")
+    monkeypatch.delenv("SDA_THINKING", raising=False)
+    c = ClaudeClient()
+    c.client = SimpleNamespace(messages=SimpleNamespace(create=create))
+    r = c.respond("sys", [{"role": "user", "content": [{"type": "text", "text": "hi"}]}])
+    assert "temperature" not in sent and sent["thinking"] == {"type": "between_tools"}
+    assert r.parsed == {"candidate_ids": [1]} and r.stop_reason == "end_turn"
+    c.thinking = "omit"
+    sent.clear()
+    c.respond("sys", [{"role": "user", "content": [{"type": "text", "text": "hi"}]}])
+    assert "thinking" not in sent
+
+
 def test_parse_json_tolerates_fences():
     p = parse_json('```json\n{"candidate_ids": ["#3", 5], "count": 2}\n```')
     assert ids_from(p) == [3, 5]
     assert parse_json("no json here") is None
+
+
+def test_parse_json_takes_the_last_object():
+    # Track V: an answer followed by 'Correction to format: {...}' was parsed as empty
+    t = ('{"candidate_ids": ["chair 5", "chair 6"], "reason": "x"}\n\nCorrection to format: '
+         '{"candidate_ids": ["chair 5", "chair 6"], "count": 2, "reason": "y {braces} inside"}')
+    assert parse_json(t) == {"candidate_ids": ["chair 5", "chair 6"], "count": 2, "reason": "y {braces} inside"}
+    assert parse_json('Let me reconsider: {"count": 1} and {not json') == {"count": 1}
 
 
 # ---------------------------------------------------------------- pipeline
@@ -236,6 +270,20 @@ def test_images_sent_only_once(prepared):
     assert imgs == 8
 
 
+def test_forced_choice_system_message_only_on_last_turn(prepared):
+    from sdarepro.prompts import FORCED_CHOICE
+    _, ps = prepared
+    dlg = next(d for d in ps.dialogues if len(d["turns"]) >= 2)
+    two = dlg["turns"][0]["gt_set"][:2] if len(dlg["turns"][0]["gt_set"]) >= 2 else [1, 2]
+    client = ScriptedClient([{"candidate_ids": two}] * len(dlg["turns"]))   # never single: every turn is sent
+    run_dialogue(client, "forced_choice", ps, dlg)
+    assert len(client.calls) == len(dlg["turns"])
+    lasts = [msgs[-1] for _, msgs in client.calls]
+    assert all(m["role"] == "user" for m in lasts[:-1])
+    assert lasts[-1]["role"] == "system" and lasts[-1]["content"][0]["text"] == FORCED_CHOICE
+    assert sum(b["type"] == "image" for b in client.calls[0][1][0]["content"]) == 8   # same views as multi_image
+
+
 def test_active_mode_loop(prepared):
     _, ps = prepared
     dlg = next(d for d in ps.dialogues if d["dtype"] == "B")
@@ -272,7 +320,139 @@ def test_geometric_dedup_on_synthetic_depth():
     geo = evaluate_clusters(dets, dedup_geometric(dets, tau=0.6))
     none = evaluate_clusters(dets, dedup_none(dets))
     assert none["recall"] == 0.0 and none["count_error"] > 0
+    assert none["precision"] is None and none["f1"] == 0.0   # no predicted links: precision is N/A, not 1.0
     assert geo["recall"] > 0.8 and geo["precision"] > 0.9
+
+
+# ---------------------------------------------------------------- per-pixel visibility (M2 check)
+def _render_depth(objects, frame, w=160, h=120):
+    """Ray-cast axis-aligned boxes and the floor (z=0) into a depth map; sets `frame.depth_K`."""
+    s = w / frame.width
+    Kd = frame.K.copy()
+    Kd[:2] *= s
+    frame.depth_K = Kd
+    v, u = np.mgrid[0:h, 0:w]
+    d_cam = np.stack([(u - Kd[0, 2]) / Kd[0, 0], (v - Kd[1, 2]) / Kd[1, 1], np.ones_like(u, float)], -1)
+    d = d_cam @ frame.pose[:3, :3].T            # world ray per pixel, parametrised so that t = camera depth
+    o = frame.pose[:3, 3]
+    depth = np.full((h, w), np.inf)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_floor = np.where(d[..., 2] < 0, -o[2] / d[..., 2], np.inf)
+        depth = np.minimum(depth, t_floor)
+        for ob in objects:
+            lo, hi = ob.center - ob.size / 2, ob.center + ob.size / 2
+            t1, t2 = (lo - o) / d, (hi - o) / d
+            tn = np.nanmax(np.minimum(t1, t2), axis=-1)
+            tf = np.nanmin(np.maximum(t1, t2), axis=-1)
+            depth = np.where((tn <= tf) & (tn > 0), np.minimum(depth, tn), depth)
+    depth[~np.isfinite(depth)] = 0
+    return depth
+
+
+def _tablecloth_scene(tmp_path, extra=(), hidden=()):
+    """Chair #2 hides behind a table whose cloth reaches the floor (48458417 views 4, 5); chair #3 is
+    half hidden by a low box. One camera at 1.3 m looking along +x. `hidden` objects are annotated
+    but not drawn into the depth map."""
+    from sdarepro.synth import K640, box
+    objs = [box("t", "table", 2.0, 0.0, 1.0, 1.6, 0.75), box("c", "chair", 2.9, 0.0, 0.45, 0.45, 0.6),
+            box("c2", "chair", 2.9, 1.2, 0.45, 0.45, 0.9), box("b", "box", 2.0, 1.2, 0.5, 0.6, 0.5), *extra, *hidden]
+    for i, ob in enumerate(objs, start=1):
+        ob.obj_id = i
+    from sdarepro.scene import Frame
+    f = Frame("f0", 0.0, camera_pose(np.array([0.0, 0.0, 1.3]), 0.0), K640.copy(), 640, 480)
+    depth = _render_depth([o for o in objs if not any(o is h for h in hidden)], f)
+    f.depth_path = str(tmp_path / "d.png")
+    Image.fromarray(np.round(depth * 1000).astype(np.uint16)).save(f.depth_path)
+    return objs, f, depth
+
+
+def test_depth_visibility_drops_hidden_objects(tmp_path):
+    # M2: chairs behind a tablecloth still got boxes (projected 3D box + centre-only depth test)
+    objs, f, _ = _tablecloth_scene(tmp_path)
+    assert project_box(objs[1], f) is not None          # the projection alone says "visible"
+    vb = compute_view_boxes(objs, [f], up_axis=2)[0]
+    assert 2 not in vb.boxes
+    assert {1, 3} <= set(vb.boxes)
+
+
+def test_depth_box_is_tight_on_the_visible_part(tmp_path):
+    # M2: the projected 3D box of a partly hidden object covers far more than what is seen
+    from sdarepro.dedup import iou
+    objs, f, _ = _tablecloth_scene(tmp_path)
+    vb = compute_view_boxes(objs, [f], up_axis=2)[0]
+    assert iou(vb.boxes[1], project_box(objs[0], f)) > 0.85  # unoccluded table: about the projection
+    proj, got = project_box(objs[2], f), vb.boxes[3]          # chair behind the low box
+    assert abs(got[1] - proj[1]) < 8                          # top edge unchanged
+    assert got[3] < proj[3] - 40                              # bottom cut where the box hides it
+
+
+def test_box_from_pixels_trims_outliers_and_needs_enough_pixels():
+    from sdarepro.geometry import ObjectPixels, box_from_pixels
+    from sdarepro.scene import Frame
+    from sdarepro.synth import K640
+    f = Frame("f", 0.0, np.eye(4), K640.copy(), 640, 480, depth_K=K640.copy())
+    v, u = np.mgrid[100:150, 200:260]
+    u = np.r_[u.ravel(), [5, 630]]                   # two stray pixels far away
+    v = np.r_[v.ravel(), [5, 470]]
+    x0, y0, x1, y1 = box_from_pixels(ObjectPixels(u, v, np.ones(u.size)), f)
+    assert 195 < x0 < 205 and 255 < x1 < 265 and 95 < y0 < 105 and 145 < y1 < 155
+    few = ObjectPixels(np.arange(10), np.arange(10), np.ones(10))
+    assert box_from_pixels(few, f) is None
+
+
+def test_mask_backprojection_lands_on_the_object(tmp_path):
+    # D2b: median depth of the object's own pixels; D2 (box centre) on the projected box hits the occluder
+    from sdarepro.geometry import backproject_pixels, frame_object_pixels, in_box_mask
+    objs, f, depth = _tablecloth_scene(tmp_path)
+    chair = objs[2]
+    p = backproject_pixels(frame_object_pixels(objs, f, depth, np.array([0, 0, 1.0]), 0.0)[3], f)
+    assert in_box_mask(chair, p[None], margin=0.05)[0]
+    d2 = backproject(Detection(view=0, label="chair", box=project_box(chair, f)), f, depth)
+    assert np.linalg.norm(p - chair.center) < np.linalg.norm(d2 - chair.center)
+
+
+def test_floor_height_is_estimated_and_floor_pixels_dropped(tmp_path):
+    # M2 re-check: 24-47% of an object's pixels were floor inside its grown box
+    from sdarepro.annotate import compute_view_boxes
+    from sdarepro.geometry import depth_to_world, estimate_floor_height, in_box_mask
+    from sdarepro.synth import box
+    objs, f, depth = _tablecloth_scene(tmp_path, extra=(box("k", "cabinet", 4.0, -2.0, 0.5, 0.5, 0.8),))
+    h = depth_to_world(depth, f)[2][:, 2]
+    noisy = np.r_[h, np.full(20, -0.4)]                      # a few stray points under the floor
+    assert abs(estimate_floor_height(noisy)) < 0.02
+    vb = compute_view_boxes(objs, [f], up_axis=2)[0]
+    assert abs(vb.floor_h) < 0.02 and np.allclose(vb.up, [0, 0, 1])
+    u, v, world = depth_to_world(depth, f)
+    for oid, px in vb.pixels.items():
+        pts = {(a, b) for a, b in zip(px.u, px.v)}
+        low = [(a, b) for a, b, w in zip(u, v, world) if w[2] < 0.05]
+        assert not pts & set(low), oid
+    floor_in_box = in_box_mask(objs[4], world) & (world[:, 2] < 0.05)
+    assert floor_in_box.sum() >= 10                          # the rule had floor to remove around the cabinet
+    assert 5 in vb.boxes
+
+
+def test_pixels_shared_by_two_boxes_count_for_neither(tmp_path):
+    # M2 re-check: in 48458417 view 5 every pixel of chair #17 was tablecloth inside the chair's box
+    from sdarepro.annotate import compute_view_boxes
+    from sdarepro.geometry import depth_to_world, in_box_mask
+    from sdarepro.synth import box
+    # annotated but not rendered: the chair itself is under the cloth, its box pokes above the tabletop
+    tucked = box("c3", "chair", 1.8, -0.5, 0.45, 0.45, 0.9)
+    half = box("c4", "chair", 2.4, 0.6, 0.45, 0.45, 0.95)     # rendered, sticks out of the table's corner
+    objs, f, depth = _tablecloth_scene(tmp_path, extra=(half,), hidden=(tucked,))
+    u, v, world = depth_to_world(depth, f)
+    in_tucked = in_box_mask(tucked, world) & (world[:, 2] >= 0.05)
+    assert in_tucked.sum() >= 30                             # without the rule it would get a box (tablecloth)
+    vb = compute_view_boxes(objs, [f], up_axis=2)[0]
+    assert tucked.obj_id not in vb.boxes
+    assert {1, half.obj_id} <= set(vb.boxes)
+    idx = {(a, b): i for i, (a, b) in enumerate(zip(u, v))}
+    for oid, px in vb.pixels.items():
+        w = world[[idx[(a, b)] for a, b in zip(px.u, px.v)]]
+        for o in objs:
+            if o.obj_id != oid:
+                assert not in_box_mask(o, w).any(), (oid, o.obj_id)
 
 
 # ---------------------------------------------------------------- ARKit loader on fake files
@@ -351,3 +531,24 @@ def test_visdial_type_b_counts():
     d = b["dialogues"][0]
     rec = run_count_dialogue(ScriptedClient([{"count": t["count"]} for t in d["turns"]]), b, d)
     assert rec["count_exact_rate"] == 1.0
+
+
+def test_tags_of_boxes_at_top_edge_do_not_overlap(monkeypatch):
+    """M1: #29 and #30 in 42446103 view 0 both touch the top edge; the second tag hid the first."""
+    from PIL import ImageDraw
+    from sdarepro.annotate import ViewBoxes, draw_view
+    tags, orig = [], ImageDraw.ImageDraw.rectangle
+
+    def rec(self, xy, fill=None, **kw):
+        if fill is not None:
+            tags.append([float(v) for v in xy])
+        return orig(self, xy, fill=fill, **kw)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "rectangle", rec)
+    vb = ViewBoxes(frame=None, boxes={29: (213, 0, 480, 42), 30: (206, 0, 480, 190), 31: (210, 5, 300, 60)})
+    draw_view(Image.new("RGB", (480, 640)), vb, {29: "stove", 30: "oven", 31: "cabinet"})
+    assert len(tags) == 3
+    for i in range(3):
+        for j in range(i + 1, 3):
+            a, b = tags[i], tags[j]
+            assert a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3], (a, b)

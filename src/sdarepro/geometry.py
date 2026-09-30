@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -64,7 +65,7 @@ def project_box(obj: Object3D, frame: Frame, min_area: float = 150.0,
 
     Returns a clipped (x0, y0, x1, y1) pixel box, or None when the object is
     behind the camera, off-screen or too small. Occlusion is NOT handled here;
-    use `visible_with_depth` for that.
+    with depth, use `object_pixels` + `box_from_pixels` instead.
     """
     pts = np.vstack([obj.corners(), obj.center[None]])
     cam = world_to_camera(pts, frame.pose)
@@ -84,30 +85,101 @@ def project_box(obj: Object3D, frame: Frame, min_area: float = 150.0,
     return float(x0), float(y0), float(x1), float(y1)
 
 
-def visible_with_depth(obj: Object3D, frame: Frame, depth_m: Optional[np.ndarray],
-                       tol: float = 0.35) -> bool:
-    """Crude occlusion test at the projected box centre.
+def depth_to_world(depth_m: np.ndarray, frame: Frame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Back-project every valid depth pixel. Returns (u, v, world points (N,3)) in depth-image pixels."""
+    v, u = np.nonzero(depth_m > 0)
+    z = depth_m[v, u].astype(float)
+    Kd = frame.depth_K
+    cam = np.c_[(u - Kd[0, 2]) * z / Kd[0, 0], (v - Kd[1, 2]) * z / Kd[1, 1], z, np.ones_like(z)]
+    return u, v, (cam @ frame.pose.T)[:, :3]
 
-    `depth_m` is the depth map in metres (any resolution; `frame.depth_K` must
-    match it). If depth is missing we assume visible.
-    """
-    if depth_m is None or frame.depth_K is None:
-        return True
-    cam = world_to_camera(obj.center[None], frame.pose)[0]
-    if cam[2] <= 0.1:
-        return False
-    u, v = project(cam[None], frame.depth_K)[0]
-    h, w = depth_m.shape
-    if not (0 <= u < w and 0 <= v < h):
-        return False
-    r = 2
-    patch = depth_m[max(0, int(v) - r):int(v) + r + 1, max(0, int(u) - r):int(u) + r + 1]
-    patch = patch[patch > 0]
-    if patch.size == 0:
-        return True
-    # visible if the measured surface is not much closer than the box centre
-    half_depth = float(np.max(obj.size)) / 2.0
-    return float(np.median(patch)) >= cam[2] - half_depth - tol
+
+def in_box_mask(obj: Object3D, points: np.ndarray, margin: float = 0.05) -> np.ndarray:
+    """Which world points lie inside the object's oriented box grown by `margin` metres on every side."""
+    local = (points - obj.center) @ obj.rotation.T   # rows of `rotation` are the box axes
+    return np.all(np.abs(local) <= obj.size / 2.0 + margin, axis=1)
+
+
+@dataclass
+class ObjectPixels:
+    """Depth pixels of one object in one frame (PLAN.md 4.2 step 4)."""
+    u: np.ndarray        # depth-image columns
+    v: np.ndarray        # depth-image rows
+    z: np.ndarray        # measured depth, metres
+
+
+def estimate_floor_height(heights: np.ndarray, bin_m: float = 0.02, min_frac: float = 0.02) -> float:
+    """Floor height from the heights (along world up) of depth points of the scene's views.
+
+    The floor is the lowest large flat surface: the lowest 2 cm height bin that holds at least
+    `min_frac` of all points, refined to the median height of the points within 3 cm of it.
+    A few noisy points below the floor are skipped by the size condition."""
+    h = np.asarray(heights, float)
+    edges = np.arange(h.min(), h.max() + 2 * bin_m, bin_m)
+    counts, _ = np.histogram(h, edges)
+    big = np.nonzero(counts >= min_frac * h.size)[0]
+    if big.size == 0:
+        return float(np.percentile(h, 1))
+    c = (edges[big[0]] + edges[big[0] + 1]) / 2
+    return float(np.median(h[np.abs(h - c) <= 0.03]))
+
+
+def frame_object_pixels(objects: list[Object3D], frame: Frame, depth_m: np.ndarray, up: np.ndarray,
+                        floor_h: float, margin: float = 0.05, floor_clear: float = 0.05
+                        ) -> dict[int, ObjectPixels]:
+    """Depth pixels of each object in one frame (PLAN.md 4.2 step 4).
+
+    A pixel belongs to an object when its 3D point lies in the object's box grown by `margin`, it is
+    at least `floor_clear` above the floor, and it lies in no other object's grown box (a pixel shared
+    by two boxes, e.g. a chair tucked under a table, counts for neither)."""
+    u, v, world = depth_to_world(depth_m, frame)
+    keep = world @ up >= floor_h + floor_clear
+    masks = {o.obj_id: in_box_mask(o, world, margin) & keep for o in objects}
+    n_boxes = np.sum(list(masks.values()), axis=0) if masks else np.zeros(u.size)
+    out = {}
+    for oid, m in masks.items():
+        m = m & (n_boxes == 1)
+        out[oid] = ObjectPixels(u[m], v[m], depth_m[v[m], u[m]].astype(float))
+    return out
+
+
+def depth_px_to_image(u: np.ndarray, v: np.ndarray, frame: Frame) -> tuple[np.ndarray, np.ndarray]:
+    """Depth-image pixel coordinates -> `frame` image coordinates (same camera, other resolution)."""
+    Kd, K = frame.depth_K, frame.K
+    return ((u - Kd[0, 2]) / Kd[0, 0] * K[0, 0] + K[0, 2],
+            (v - Kd[1, 2]) / Kd[1, 1] * K[1, 1] + K[1, 2])
+
+
+def box_from_pixels(px: ObjectPixels, frame: Frame, trim: float = 0.02, min_pixels: int = 30,
+                    min_area: float = 150.0) -> Optional[tuple[float, float, float, float]]:
+    """2D box over the object's visible depth pixels, dropping `trim` of outliers at each end.
+
+    Returns None (= not visible in this view) when fewer than `min_pixels` depth pixels fall in the
+    object's box or the resulting box is smaller than `min_area` image pixels."""
+    if px.u.size < min_pixels:
+        return None
+    lo, hi = 100 * trim, 100 * (1 - trim)
+    u0, u1 = np.percentile(px.u, [lo, hi])
+    v0, v1 = np.percentile(px.v, [lo, hi])
+    # a depth pixel covers [u - 0.5, u + 0.5]
+    (x0, x1), (y0, y1) = depth_px_to_image(np.array([u0 - 0.5, u1 + 0.5]), np.array([v0 - 0.5, v1 + 0.5]), frame)
+    x0, x1 = np.clip([x0, x1], 0, frame.width - 1)
+    y0, y1 = np.clip([y0, y1], 0, frame.height - 1)
+    if (x1 - x0) * (y1 - y0) < min_area:
+        return None
+    return float(x0), float(y0), float(x1), float(y1)
+
+
+def backproject_pixels(px: ObjectPixels, frame: Frame) -> Optional[np.ndarray]:
+    """World point at the median pixel of the object's mask, using the median depth of the mask
+    (D2b in PLAN.md section 6: the paper's SAM-contour depth with a perfect mask)."""
+    if px.u.size == 0:
+        return None
+    z = float(np.median(px.z))
+    u, v = float(np.median(px.u)), float(np.median(px.v))
+    Kd = frame.depth_K
+    cam = np.array([(u - Kd[0, 2]) * z / Kd[0, 0], (v - Kd[1, 2]) * z / Kd[1, 1], z, 1.0])
+    return (frame.pose @ cam)[:3]
 
 
 def estimate_up_axis(poses: list[np.ndarray]) -> int:

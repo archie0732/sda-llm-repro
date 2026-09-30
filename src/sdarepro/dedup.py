@@ -21,7 +21,8 @@ class Detection:
     box: tuple[float, float, float, float]   # pixels in the view image
     score: float = 1.0
     gt_obj: Optional[int] = None             # filled by `match_to_gt` for evaluation
-    world: Optional[np.ndarray] = None       # filled by `backproject`
+    world: Optional[np.ndarray] = None       # filled by `backproject` (D2)
+    world_mask: Optional[np.ndarray] = None  # filled by `geometry.backproject_pixels` (D2b, gt source only)
 
 
 def iou(a, b) -> float:
@@ -58,8 +59,10 @@ def dedup_none(dets: list[Detection]) -> list[int]:
     return list(range(len(dets)))
 
 
-def dedup_geometric(dets: list[Detection], tau: float = 0.5) -> list[int]:
-    """D2: union-find over same-label detections whose 3D points are closer than `tau` metres."""
+def dedup_geometric(dets: list[Detection], tau: float = 0.5, point: str = "world") -> list[int]:
+    """D2: union-find over same-label detections whose 3D points are closer than `tau` metres.
+
+    `point` picks which 3D point to compare: 'world' (D2, box-centre depth) or 'world_mask' (D2b)."""
     parent = list(range(len(dets)))
 
     def find(i):
@@ -70,9 +73,10 @@ def dedup_geometric(dets: list[Detection], tau: float = 0.5) -> list[int]:
 
     for i, j in combinations(range(len(dets)), 2):
         a, b = dets[i], dets[j]
-        if a.label != b.label or a.world is None or b.world is None or a.view == b.view:
+        pa, pb = getattr(a, point), getattr(b, point)
+        if a.label != b.label or pa is None or pb is None or a.view == b.view:
             continue
-        if np.linalg.norm(a.world - b.world) < tau:
+        if np.linalg.norm(pa - pb) < tau:
             parent[find(i)] = find(j)
     roots = [find(i) for i in range(len(dets))]
     remap = {r: k for k, r in enumerate(dict.fromkeys(roots))}
@@ -80,7 +84,10 @@ def dedup_geometric(dets: list[Detection], tau: float = 0.5) -> list[int]:
 
 
 def evaluate_clusters(dets: list[Detection], cluster: list[int]) -> dict:
-    """Pairwise precision / recall of 'same object' links against ground truth, plus count error."""
+    """Pairwise precision / recall of 'same object' links against ground truth, plus count error.
+
+    A ratio with an empty denominator is None (shown as N/A), e.g. the precision of D1, which
+    predicts no links at all. tp / fp / fn are kept so scenes can be pooled."""
     idx = [i for i, d in enumerate(dets) if d.gt_obj is not None]
     tp = fp = fn = 0
     for i, j in combinations(idx, 2):
@@ -89,12 +96,16 @@ def evaluate_clusters(dets: list[Detection], cluster: list[int]) -> dict:
         tp += same_pred and same_gt
         fp += same_pred and not same_gt
         fn += (not same_pred) and same_gt
-    p = tp / (tp + fp) if tp + fp else 1.0
-    r = tp / (tp + fn) if tp + fn else 1.0
     n_pred = len(set(cluster[i] for i in idx))
     n_gt = len(set(dets[i].gt_obj for i in idx))
-    return {"precision": p, "recall": r, "f1": 2 * p * r / (p + r) if p + r else 0.0,
+    return {**link_scores(tp, fp, fn), "tp": tp, "fp": fp, "fn": fn,
             "n_pred_objects": n_pred, "n_gt_objects": n_gt, "count_error": n_pred - n_gt}
+
+
+def link_scores(tp: int, fp: int, fn: int) -> dict:
+    return {"precision": tp / (tp + fp) if tp + fp else None,
+            "recall": tp / (tp + fn) if tp + fn else None,
+            "f1": 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else None}
 
 
 def match_to_gt(dets: list[Detection], gt_boxes_per_view: list[dict[int, tuple]], labels: dict[int, str],

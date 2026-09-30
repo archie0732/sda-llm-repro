@@ -7,3 +7,7 @@ __pycache__/
 results/m1_check/
 .venv/
 results/visdial_check/
+results/m2_check/
+results/m2_check_v*/
+results/human_office/
+results/v2_check/

@@ -17,6 +17,8 @@ from .geometry import to_floor
 from .scene import Object3D
 
 NICE_NAMES = {"tv_monitor": "TV", "refrigerator": "fridge"}
+# PLAN.md 3.3: dialogue targets (and scene ranking) use these classes; any class can still be a landmark
+TARGET_CLASSES = ("chair", "stool", "table", "sofa")
 
 
 def nice(label: str) -> str:

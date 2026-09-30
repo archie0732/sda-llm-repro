@@ -13,7 +13,8 @@ from typing import Optional
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from .geometry import project_box, rotate_box_cw, to_floor, visible_with_depth
+from .geometry import (ObjectPixels, box_from_pixels, depth_to_world, estimate_floor_height, estimate_up_axis,
+                       frame_object_pixels, project_box, rotate_box_cw, to_floor, up_vector)
 from .scene import Frame, Object3D, Scene
 
 PALETTE = [(230, 25, 75), (60, 180, 75), (0, 130, 200), (245, 130, 48), (145, 30, 180),
@@ -25,6 +26,9 @@ PALETTE = [(230, 25, 75), (60, 180, 75), (0, 130, 200), (245, 130, 48), (145, 30
 class ViewBoxes:
     frame: Frame
     boxes: dict[int, tuple[float, float, float, float]] = field(default_factory=dict)  # obj_id -> box
+    pixels: dict[int, ObjectPixels] = field(default_factory=dict)  # obj_id -> depth pixels (depth mode only)
+    up: Optional[np.ndarray] = None          # world up vector used for the floor rule (depth mode only)
+    floor_h: Optional[float] = None          # estimated floor height along `up`
 
 
 def load_depth_m(frame: Frame) -> Optional[np.ndarray]:
@@ -34,19 +38,44 @@ def load_depth_m(frame: Frame) -> Optional[np.ndarray]:
     return d
 
 
+def scene_up_and_floor(objects: list[Object3D], frames: list[Frame], depths: list[Optional[np.ndarray]],
+                       up_axis: Optional[int] = None) -> tuple[np.ndarray, Optional[float]]:
+    """World up vector (signed) and floor height estimated from the depth of `frames`."""
+    poses = [f.pose for f in frames]
+    if up_axis is None:
+        up_axis = estimate_up_axis(poses)
+    up = up_vector(poses, up_axis, np.array([o.center for o in objects]) if objects else np.zeros((1, 3)))
+    heights = [depth_to_world(d, f)[2] @ up for d, f in zip(depths, frames) if d is not None]
+    return up, (estimate_floor_height(np.concatenate(heights)) if heights else None)
+
+
 def compute_view_boxes(objects: list[Object3D], frames: list[Frame], use_depth: bool = True,
-                       min_area: float = 150.0) -> list[ViewBoxes]:
+                       min_area: float = 150.0, margin: float = 0.05, trim: float = 0.02,
+                       min_pixels: int = 30, floor_clear: float = 0.05,
+                       up_axis: Optional[int] = None) -> list[ViewBoxes]:
+    """Per-view boxes of the visible objects (PLAN.md 4.2 step 4).
+
+    With depth: back-project every depth pixel and keep, per object, those inside its 3D box grown by
+    `margin`, at least `floor_clear` above the floor and inside no other object's box
+    (`geometry.frame_object_pixels`). Box them, trimming `trim` outliers per side. Fewer than
+    `min_pixels` -> not visible. This handles occlusion and gives tight boxes (M2 check).
+    Without depth (synthetic tests, `--no_depth`): the projected 3D box, no occlusion test."""
+    depths = [load_depth_m(f) if use_depth and f.depth_K is not None else None for f in frames]
+    up, floor_h = scene_up_and_floor(objects, frames, depths, up_axis) if any(d is not None for d in depths) \
+        else (None, None)
     out = []
-    for f in frames:
-        depth = load_depth_m(f) if use_depth else None
-        vb = ViewBoxes(frame=f)
+    for f, depth in zip(frames, depths):
+        vb = ViewBoxes(frame=f, up=up, floor_h=floor_h)
+        pix = frame_object_pixels(objects, f, depth, up, floor_h, margin, floor_clear) if depth is not None else None
         for o in objects:
-            box = project_box(o, f, min_area=min_area)
-            if box is None:
-                continue
-            if use_depth and not visible_with_depth(o, f, depth):
-                continue
-            vb.boxes[o.obj_id] = box
+            if pix is None:
+                box = project_box(o, f, min_area=min_area)
+            else:
+                box = box_from_pixels(pix[o.obj_id], f, trim=trim, min_pixels=min_pixels, min_area=min_area)
+                if box is not None:
+                    vb.pixels[o.obj_id] = pix[o.obj_id]
+            if box is not None:
+                vb.boxes[o.obj_id] = box
         out.append(vb)
     return out
 
