@@ -26,21 +26,23 @@ Track V 已經完成，Track R 還在前處理階段。完整整理在 [results/
 
 V1 是作者公開的 Office 場景，15 組 Type A 對話，每個條件跑 3 次取平均。
 
+主要結果的正解是作者的答案，只有 A11 到 A14 四題白板題把作者的白板編號翻譯成我們圖上的編號（物件不變，理由見 PLAN.md 5.0）。括號內是作者原本編號下的數字。
+
 | 條件 | 找到的比例 | T_A |
 | --- | --- | --- |
 | 論文 GPT-4o | 無 | 0.860 |
-| 人類（我一人，同樣規則） | 0.600 | 0.600 |
-| multi_image（8 張圖分開送） | 0.178 | 0.100 |
-| grid（拼成一張） | 0.200 | 0.110 |
-| text_only（只給物件座標表） | 0.000 | 0.000 |
-| multi_image_text（圖加座標表） | 0.222 | 0.124 |
-| forced_choice（最後強迫只回一個 ID） | 0.578 | 0.457 |
+| 人類（我一人，同樣規則） | 0.733（0.600） | 0.733（0.600） |
+| multi_image（8 張圖分開送） | 0.444（0.178） | 0.366（0.100） |
+| grid（拼成一張） | 0.467（0.200） | 0.377（0.110） |
+| text_only（只給物件座標表） | 0.000（0.000） | 0.000（0.000） |
+| multi_image_text（圖加座標表） | 0.489（0.222） | 0.391（0.124） |
+| forced_choice（最後強迫只回一個 ID） | 0.844（0.578） | 0.723（0.457） |
 
 我目前得到四個觀察。
 
-1. **照公開 CSV 重播對話時達不到 0.86。** 連我自己看圖作答也只有 0.600。作者公開的 notebook 是由人即時輸入對話，直到使用者確認才結束，我推測評估流程跟 CSV 重播不同。
-2. **Claude 的錯多半是不肯選一個。** 正解常常在它的候選裡，但它停在兩三張椅子。最後強迫只回一個 ID 之後，找到的比例從 0.18 升到 0.58，接近人類。
-3. **四題白板題的正解可能整組錯了一格。** 我和 Claude 在前三題都一致答成作者正解的下一號。依裁切圖修正後，除了 text_only 以外各條件分數都會上升，但仍低於 0.86。
+1. **照公開 CSV 重播對話時達不到 0.86。** 連我自己看圖作答也只有 0.733（作者原本編號下是 0.600）。作者公開的 notebook 是由人即時輸入對話，直到使用者確認才結束，我推測評估流程跟 CSV 重播不同。
+2. **Claude 的錯多半是不肯選一個。** 正解常常在它的候選裡，但它停在兩三張椅子。最後強迫只回一個 ID 之後，找到的比例從 0.44 升到 0.84（作者原本編號下是 0.18 升到 0.58）。
+3. **四題白板題的作者編號跟我們圖上的編號不同。** 作者評估用的圖只框目標類別，白板編號由偵測順序產生，跟公開的 LabelMe 框不同。我們把這四題的正解翻譯成我們圖上的編號，當作主要結果，作者原本編號下的分數另列。
 4. **Type B 的「數量對」不等於「指對」。** 最後一輪數量正確的 34 組裡，我人工確認只有 23 組真的指到對的物件。
 
 Track R 目前有 8 個場景、42 組對話。跨圖去重在標註框上的最佳結果是用物件像素反投影（D2b），τ = 0.5 m 時 F1 為 0.72。
@@ -84,7 +86,7 @@ bash scripts/fetch_visdial.sh                                 # 下載到 third_
 python scripts/run_visdial.py --track A --cond multi_image --limit 3
 python scripts/run_visdial.py --track A --cond multi_image --rep 1
 python scripts/run_visdial.py --track B --cond count
-python scripts/summarize_visdial.py --fix results/visdial_target_fix.json
+python scripts/summarize_visdial.py                          # 預設讀 results/visdial_target_fix.json
 ```
 
 `--cond` 可以是 `multi_image`、`grid`、`text_only`、`multi_image_text`、`forced_choice`。

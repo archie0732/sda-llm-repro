@@ -3,14 +3,16 @@
 V1 (Type A, Office): per condition, the mean over repeats of found rate, the lenient 'final set contains the
 target' rate, SR, AS, T_A, with the range over repeats, next to the paper's GPT-4o numbers for Office and a
 human baseline (make_human_sheet.py, scored with metrics.score_type_a). A per-dialogue table shows the
-final answers. `--fix` adds sensitivity columns (found, T_A) with corrected targets; the original targets stay the
-main result. V2 (Type B): per-turn count accuracy. Also lists the dialogues whose final answer differs
+final answers. The main targets are the authors' answers, except A11-A14 whose whiteboard numbers are translated
+to the labels drawn on our images (`--targets`, PLAN.md 5.0): the authors' answer file numbers the whiteboards in
+another system than the LabelMe boxes. Found and T_A under the authors' own numbers stay as two side columns.
+V2 (Type B): per-turn count accuracy. Also lists the dialogues whose final answer differs
 between repeats, and the token cost.
 
 Prices are per million tokens and are NOT looked up from the model id; pass them if the model changes.
 
 python scripts/summarize_visdial.py
-python scripts/summarize_visdial.py --fix results/visdial_target_fix.json
+python scripts/summarize_visdial.py --targets ""      # authors' numbers everywhere
 python scripts/summarize_visdial.py --price_in 2 --price_out 10 --price_cache_read 0.2 --price_cache_write 2.5
 """
 import argparse
@@ -30,7 +32,8 @@ ap.add_argument("--raw", default="results/raw_visdial")
 ap.add_argument("--root", default="third_party/SDA-LLM/Dataset")
 ap.add_argument("--out", default="results/visdial_summary.md")
 ap.add_argument("--human", default="results/human_office/answers.json", help="make_human_sheet.py download")
-ap.add_argument("--fix", default="", help="JSON {dialogue: corrected target tag}, sensitivity columns only")
+ap.add_argument("--targets", default="results/visdial_target_fix.json",
+                help="JSON {A11: {target: 'whiteboard 2', reason: ...}, ...}, the authors' targets in our labels; '' = none")
 ap.add_argument("--price_in", type=float, default=2.0)
 ap.add_argument("--price_out", type=float, default=10.0)
 ap.add_argument("--price_cache_read", type=float, default=0.2)
@@ -44,10 +47,14 @@ tag = {o.obj_id: o.tag for o in ps.ctx.objects}
 dlgs = {d["dialogue_id"]: d for d in ps.dialogues}
 turns = {d["dialogue_id"]: [t["text"] for t in d["turns"]] for d in ps.dialogues}
 qid = {did: did.split("-")[-1] for did in dlgs}
-# sensitivity analysis only: corrected targets as {"A11": "whiteboard 2", ...}, used after the person confirmed them
-fix = {}
-if a.fix:
-    fix = {q: ps.name_map[norm_name(t)] for q, t in json.load(open(a.fix, encoding="utf-8")).items()}
+# main targets: the authors' answers, with the whiteboard numbers of A11-A14 translated to our labels (PLAN.md 5.0)
+trans = {}
+if a.targets:
+    for q, v in json.load(open(a.targets, encoding="utf-8")).items():
+        trans[q] = ps.name_map[norm_name(v["target"] if isinstance(v, dict) else v)]
+author = {did: d["target"] for did, d in dlgs.items()}
+target = {did: trans.get(qid[did], author[did]) for did in dlgs}
+side = bool(trans) and any(target[d] != author[d] for d in dlgs)   # show the authors' numbering next to it
 
 recs = []
 for p in sorted(glob.glob(os.path.join(a.raw, "*.jsonl"))):
@@ -76,9 +83,10 @@ def short(ids):
     return ",".join(tag.get(i, str(i)).replace("chair ", "").replace("whiteboard ", "wb") for i in ids) or "-"
 
 
-def scores(did, preds, target=None):
-    """metrics.score_type_a plus the lenient 'final set contains the target' for one answer sequence."""
-    t = dlgs[did]["target"] if target is None else target
+def scores(did, preds, tgt=None):
+    """metrics.score_type_a plus the lenient 'final set contains the target' for one answer sequence.
+    The target is the main one (our labels) unless `tgt` is given."""
+    t = target[did] if tgt is None else tgt
     s = score_type_a(t, preds, k=len(dlgs[did]["turns"]))
     s["contains"] = bool(preds) and t in preds[-1]
     s["size"] = len(preds[-1]) if preds else 0
@@ -102,19 +110,19 @@ if os.path.exists(a.human):
     human = {did: [[ps.name_map[norm_name(t)] for t in p] for p in H[q]["picks"]]
              for did, q in qid.items() if q in H and H[q].get("done")}
 
-fix_col = " | found, targets fixed | T_A, targets fixed" if fix else ""
+fix_col = " | found, authors' numbering | T_A, authors' numbering" if side else ""
 L += ["## V1 Office, Type A (15 dialogues)", "",
       f"| condition | repeats | dialogues per repeat | found | contains | final set size | SR | AS | T_A | turns used | cost per repeat (USD){fix_col} |",
-      "| --- " * (11 + 2 * bool(fix)) + "|",
+      "| --- " * (11 + 2 * side) + "|",
       f"| paper, GPT-4o | 1 | 15 | - | - | - | {PAPER_OFFICE['SR']:.3f} | {PAPER_OFFICE['AS']:.3f} | {PAPER_OFFICE['T_A']:.3f} | - | -"
-      + (" | - | -" if fix else "") + " |"]
+      + (" | - | -" if side else "") + " |"]
 if human:
     S = [scores(did, p) for did, p in human.items()]
     row = (f"| human (same protocol, one person) | 1 | {len(S)} | {mean([s['found'] for s in S]):.3f} | "
            f"{mean([s['contains'] for s in S]):.3f} | {mean([s['size'] for s in S]):.2f} | {mean([s['SR'] for s in S]):.3f} | {mean([s['AS'] for s in S]):.3f} | "
            f"{mean([s['T_A'] for s in S]):.3f} | {mean([s['alpha'] for s in S]):.3f} | -")
-    if fix:
-        F = [scores(did, p, fix.get(qid[did])) for did, p in human.items()]
+    if side:
+        F = [scores(did, p, author[did]) for did, p in human.items()]
         row += f" | {mean([s['found'] for s in F]):.3f} | {mean([s['T_A'] for s in F]):.3f}"
     L.append(row + " |")
 for cond in CONDS:
@@ -128,9 +136,9 @@ for cond in CONDS:
     n = sorted({len(rs) for rs in reps.values()})
     c = mean([sum(cost(usage(r)) for r in rs) for rs in reps.values()])
     row = f"| {cond} | {len(reps)} | {'/'.join(map(str, n))} | " + " | ".join(cells) + f" | {c:.3f}"
-    if fix:
+    if side:
         for key in ("found", "T_A"):
-            per = [mean([float(scores(r["dialogue_id"], r["preds"], fix.get(qid[r["dialogue_id"]]))[key]) for r in rs])
+            per = [mean([float(scores(r["dialogue_id"], r["preds"], author[r["dialogue_id"]])[key]) for r in rs])
                    for rs in reps.values()]
             row += f" | {mean(per):.3f} [{min(per):.2f}–{max(per):.2f}]"
     L.append(row + " |")
@@ -139,11 +147,11 @@ for cond in CONDS:
 present = [c for c in CONDS if c in by_cond]
 L += ["", "## Per dialogue: final answers", "",
       "Chair numbers are shown bare (3 = chair 3), wb2 = whiteboard 2. Each condition cell lists the final answer of "
-      "repeats 1 / 2 / 3, and * marks a correct single answer.", "",
-      "| # | first sentence | author target | human | " + " | ".join(present) + " |",
-      "| --- " * (4 + len(present)) + "|"]
+      "repeats 1 / 2 / 3, and * marks a correct single answer under the main target (our labels).", "",
+      "| # | first sentence | target (our labels) | authors' number | human | " + " | ".join(present) + " |",
+      "| --- " * (5 + len(present)) + "|"]
 for did in sorted(dlgs, key=lambda d: int(d.rsplit("A", 1)[1])):
-    tgt = dlgs[did]["target"]
+    tgt = target[did]
 
     def cell(preds):
         fin = preds[-1] if preds else []
@@ -155,7 +163,7 @@ for did in sorted(dlgs, key=lambda d: int(d.rsplit("A", 1)[1])):
         by_rep = {r.get("rep", 1): r for rs in by_cond[c].values() for r in rs if r["dialogue_id"] == did}
         per.append(" / ".join(cell(by_rep[k]["preds"]) if k in by_rep else "" for k in sorted(by_cond[c])))
     first = turns[did][0].replace("Help me find the ", "")
-    L.append(f"| {qid[did]} | {first} | {short([tgt])} | {hum} | " + " | ".join(per) + " |")
+    L.append(f"| {qid[did]} | {first} | {short([tgt])} | {short([author[did]])} | {hum} | " + " | ".join(per) + " |")
 
 L += ["", "## Dialogues whose final answer differs between repeats", ""]
 unstable = 0
@@ -166,13 +174,13 @@ for cond in CONDS:
     final = defaultdict(dict)
     for rep, rs in reps.items():
         for r in rs:
-            final[r["dialogue_id"]][rep] = (r["preds"][-1] if r["preds"] else [], r["found"])
+            final[r["dialogue_id"]][rep] = (r["preds"][-1] if r["preds"] else [], scores(r["dialogue_id"], r["preds"])["found"])
     for did in sorted(final, key=lambda d: int(d.rsplit("A", 1)[1])):
         answers = final[did]
         if len({tuple(v[0]) for v in answers.values()}) > 1:
             unstable += 1
             got = "，".join(f"第 {k} 次 {names(v[0])}{' 對' if v[1] else ''}" for k, v in sorted(answers.items()))
-            L.append(f"- {cond} {qid[did]}，目標 {tag[dlgs[did]['target']]}。{got}。對話為 {' / '.join(turns[did])}")
+            L.append(f"- {cond} {qid[did]}，目標 {tag[target[did]]}。{got}。對話為 {' / '.join(turns[did])}")
 if not unstable:
     L.append("- 沒有（或還沒有兩次以上的重複）")
 

@@ -4,37 +4,37 @@ Model(s): claude-sonnet-5-5. Every number is the mean over repeats, the range ov
 
 ## V1 Office, Type A (15 dialogues)
 
-| condition | repeats | dialogues per repeat | found | contains | final set size | SR | AS | T_A | turns used | cost per repeat (USD) | found, targets fixed | T_A, targets fixed |
+| condition | repeats | dialogues per repeat | found | contains | final set size | SR | AS | T_A | turns used | cost per repeat (USD) | found, authors' numbering | T_A, authors' numbering |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | paper, GPT-4o | 1 | 15 | - | - | - | 0.866 | 0.835 | 0.860 | - | - | - | - |
-| human (same protocol, one person) | 1 | 15 | 0.600 | 0.800 | 1.20 | 0.600 | 0.600 | 0.600 | 1.067 | - | 0.733 | 0.733 |
-| multi_image | 3 | 15 | 0.178 [0.13–0.20] | 0.622 [0.60–0.67] | 1.667 [1.53–1.80] | 0.093 [0.07–0.11] | 0.125 [0.10–0.14] | 0.100 [0.07–0.11] | 1.556 [1.53–1.60] | 0.093 | 0.444 [0.40–0.47] | 0.366 [0.34–0.38] |
-| grid | 3 | 15 | 0.200 [0.20–0.20] | 0.489 [0.47–0.53] | 2.133 [1.80–2.33] | 0.100 [0.10–0.10] | 0.150 [0.15–0.15] | 0.110 [0.11–0.11] | 1.644 [1.60–1.67] | 0.034 | 0.467 [0.47–0.47] | 0.377 [0.38–0.38] |
+| human (same protocol, one person) | 1 | 15 | 0.733 | 0.933 | 1.20 | 0.733 | 0.733 | 0.733 | 1.067 | - | 0.600 | 0.600 |
+| multi_image | 3 | 15 | 0.444 [0.40–0.47] | 0.889 [0.87–0.93] | 1.667 [1.53–1.80] | 0.360 [0.33–0.37] | 0.391 [0.37–0.40] | 0.366 [0.34–0.38] | 1.556 [1.53–1.60] | 0.093 | 0.178 [0.13–0.20] | 0.100 [0.07–0.11] |
+| grid | 3 | 15 | 0.467 [0.47–0.47] | 0.756 [0.73–0.80] | 2.133 [1.80–2.33] | 0.367 [0.37–0.37] | 0.417 [0.42–0.42] | 0.377 [0.38–0.38] | 1.644 [1.60–1.67] | 0.034 | 0.200 [0.20–0.20] | 0.110 [0.11–0.11] |
 | text_only | 3 | 15 | 0.000 [0.00–0.00] | 0.867 [0.73–0.93] | 7.667 [7.00–8.33] | 0.000 [0.00–0.00] | 0.000 [0.00–0.00] | 0.000 [0.00–0.00] | 1.667 [1.67–1.67] | 0.092 | 0.000 [0.00–0.00] | 0.000 [0.00–0.00] |
-| multi_image_text | 3 | 15 | 0.222 [0.20–0.27] | 0.667 [0.67–0.67] | 1.689 [1.60–1.80] | 0.118 [0.11–0.14] | 0.151 [0.14–0.18] | 0.124 [0.11–0.15] | 1.533 [1.53–1.53] | 0.125 | 0.489 [0.47–0.53] | 0.391 [0.38–0.41] |
-| forced_choice | 3 | 15 | 0.578 [0.53–0.60] | 0.578 [0.53–0.60] | 1.000 [1.00–1.00] | 0.446 [0.44–0.46] | 0.500 [0.47–0.51] | 0.457 [0.45–0.47] | 1.556 [1.47–1.67] | 0.095 | 0.844 [0.80–0.87] | 0.723 [0.71–0.74] |
+| multi_image_text | 3 | 15 | 0.489 [0.47–0.53] | 0.933 [0.93–0.93] | 1.689 [1.60–1.80] | 0.384 [0.37–0.41] | 0.418 [0.40–0.45] | 0.391 [0.38–0.41] | 1.533 [1.53–1.53] | 0.125 | 0.222 [0.20–0.27] | 0.124 [0.11–0.15] |
+| forced_choice | 3 | 15 | 0.844 [0.80–0.87] | 0.844 [0.80–0.87] | 1.000 [1.00–1.00] | 0.713 [0.70–0.73] | 0.766 [0.74–0.78] | 0.723 [0.71–0.74] | 1.556 [1.47–1.67] | 0.095 | 0.578 [0.53–0.60] | 0.457 [0.45–0.47] |
 
 ## Per dialogue: final answers
 
-Chair numbers are shown bare (3 = chair 3), wb2 = whiteboard 2. Each condition cell lists the final answer of repeats 1 / 2 / 3, and * marks a correct single answer.
+Chair numbers are shown bare (3 = chair 3), wb2 = whiteboard 2. Each condition cell lists the final answer of repeats 1 / 2 / 3, and * marks a correct single answer under the main target (our labels).
 
-| # | first sentence | author target | human | multi_image | grid | text_only | multi_image_text | forced_choice |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A0 | chair closest to the glass wall. | 1 | 1,2 | 1,2 / 1,2 / 1,2 | 1,2,3,4,5,6 / 1,2,3,4 / 1,2,3,4,5,6 | 1,6,9,10 / 1,2,6,9,10 / 6,9,10 | 1,2 / 1,2 / 1,2,10,11 | 1* / 1* / 1* |
-| A1 | chair with the desk lamp on the table. | 2 | 1,2 | 4 / 3,4 / 3,4 | 2* / 2* / 2* | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 10,11 | 2* / 3,4 / 2,4 | 3 / 4 / 3 |
-| A2 | chair with the white water bottle on the table. | 3 | 3,4 | 3,4 / 3,4 / 3,4 | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 3,4 / 3,4 / 3,4 | 3* / 3* / 3* |
-| A3 | chair with the books on the table. | 4 | 4* | 3,4 / 3 / 3,4 | 5,6,7,8,9 / 11 / 5,6,7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 3,4 / 3,4 / 3,4 | 3 / 4* / 4* |
-| A4 | chair with an umbrella on the table. | 5 | 5* | 6 / 5,6 / 3,4,5,6 | 6 / 6 / 6 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 4,6 / 5,6 / 4,6 | 3 / 4 / 6 |
-| A5 | chair with the fire extinguisher on the table. | 6 | 6* | 5,6 / 5,6 / 5,6 | 5,6 / 5,6 / 5,6 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 5,6 / 5,6 / 5,6 | 6* / 6* / 6* |
-| A6 | chair with the paint bucket on the table. | 7 | 7* | 7* / 7,8 / 7* | 7,8,9 / 7,8,9 / 7,8,9 | 5,6,9,10,11 / 5,6,9,10,11 / 6,9,11 | 7* / 7* / 7* | 7* / 7* / 7* |
-| A7 | chair with the safety helmet on the table. | 8 | 8* | 7,8,9 / 7,8,9 / 7,8,9 | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 7,8,9 / 7,8,9 / 7,8,9 | 8* / 8* / 8* |
-| A8 | chair with the laptop on the table. | 9 | 9* | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,7,8 / 1,2,8 / 1,2,7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 7,8,9 / 7,8,9 / 7,8,9 | 9* / 9* / 9* |
-| A9 | chair with many cardboard boxes on the table. | 10 | 10* | 10* / 10* / 10* | 10* / 10* / 10* | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 10* / 10* / 10* | 10* / 10* / 10* |
-| A10 | chair with many cardboard boxes on the table. | 11 | 11* | 11* / 11* / 11* | 11* / 11* / 11* | 10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 3,4,7,8 | 11* / 11* / 11* | 11* / 11* / 11* |
-| A11 | whiteboard with a heart next to it. | wb1 | wb2 | wb2 / wb2 / wb2 | wb2 / wb2 / wb2 | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb2 / wb2 / wb2 | wb2 / wb2 / wb2 |
-| A12 | whiteboard with writing on it. | wb2 | wb3 | wb3 / wb3 / wb3 | wb3 / wb3 / wb3 | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb3 / wb3 / wb3 | wb3 / wb3 / wb3 |
-| A13 | whiteboard next to the whiteboard with writing on it. | wb3 | wb4 | wb4 / wb4 / wb4 | wb4 / wb4 / wb4 | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb4 / wb4 / wb4 | wb4 / wb4 / wb4 |
-| A14 | whiteboard next to the cable. | wb4 | wb4* | wb1 / wb1 / wb1 | wb1 / wb1 / wb1 | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb1 / wb1 / wb1 | wb1 / wb1 / wb1 |
+| # | first sentence | target (our labels) | authors' number | human | multi_image | grid | text_only | multi_image_text | forced_choice |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A0 | chair closest to the glass wall. | 1 | 1 | 1,2 | 1,2 / 1,2 / 1,2 | 1,2,3,4,5,6 / 1,2,3,4 / 1,2,3,4,5,6 | 1,6,9,10 / 1,2,6,9,10 / 6,9,10 | 1,2 / 1,2 / 1,2,10,11 | 1* / 1* / 1* |
+| A1 | chair with the desk lamp on the table. | 2 | 2 | 1,2 | 4 / 3,4 / 3,4 | 2* / 2* / 2* | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 10,11 | 2* / 3,4 / 2,4 | 3 / 4 / 3 |
+| A2 | chair with the white water bottle on the table. | 3 | 3 | 3,4 | 3,4 / 3,4 / 3,4 | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 3,4 / 3,4 / 3,4 | 3* / 3* / 3* |
+| A3 | chair with the books on the table. | 4 | 4 | 4* | 3,4 / 3 / 3,4 | 5,6,7,8,9 / 11 / 5,6,7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 3,4 / 3,4 / 3,4 | 3 / 4* / 4* |
+| A4 | chair with an umbrella on the table. | 5 | 5 | 5* | 6 / 5,6 / 3,4,5,6 | 6 / 6 / 6 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 4,6 / 5,6 / 4,6 | 3 / 4 / 6 |
+| A5 | chair with the fire extinguisher on the table. | 6 | 6 | 6* | 5,6 / 5,6 / 5,6 | 5,6 / 5,6 / 5,6 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 5,6 / 5,6 / 5,6 | 6* / 6* / 6* |
+| A6 | chair with the paint bucket on the table. | 7 | 7 | 7* | 7* / 7,8 / 7* | 7,8,9 / 7,8,9 / 7,8,9 | 5,6,9,10,11 / 5,6,9,10,11 / 6,9,11 | 7* / 7* / 7* | 7* / 7* / 7* |
+| A7 | chair with the safety helmet on the table. | 8 | 8 | 8* | 7,8,9 / 7,8,9 / 7,8,9 | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 7,8,9 / 7,8,9 / 7,8,9 | 8* / 8* / 8* |
+| A8 | chair with the laptop on the table. | 9 | 9 | 9* | 7,8,9 / 7,8,9 / 7,8,9 | 1,2,7,8 / 1,2,8 / 1,2,7,8,9 | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 7,8,9 / 7,8,9 / 7,8,9 | 9* / 9* / 9* |
+| A9 | chair with many cardboard boxes on the table. | 10 | 10 | 10* | 10* / 10* / 10* | 10* / 10* / 10* | 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 1,2,3,4,5,6,7,8,9,10,11 | 10* / 10* / 10* | 10* / 10* / 10* |
+| A10 | chair with many cardboard boxes on the table. | 11 | 11 | 11* | 11* / 11* / 11* | 11* / 11* / 11* | 10,11 / 1,2,3,4,5,6,7,8,9,10,11 / 3,4,7,8 | 11* / 11* / 11* | 11* / 11* / 11* |
+| A11 | whiteboard with a heart next to it. | wb2 | wb1 | wb2* | wb2* / wb2* / wb2* | wb2* / wb2* / wb2* | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb2* / wb2* / wb2* | wb2* / wb2* / wb2* |
+| A12 | whiteboard with writing on it. | wb3 | wb2 | wb3* | wb3* / wb3* / wb3* | wb3* / wb3* / wb3* | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb3* / wb3* / wb3* | wb3* / wb3* / wb3* |
+| A13 | whiteboard next to the whiteboard with writing on it. | wb4 | wb3 | wb4* | wb4* / wb4* / wb4* | wb4* / wb4* / wb4* | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb4* / wb4* / wb4* | wb4* / wb4* / wb4* |
+| A14 | whiteboard next to the cable. | wb1 | wb4 | wb4 | wb1* / wb1* / wb1* | wb1* / wb1* / wb1* | wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 / wb1,wb2,wb3,wb4 | wb1* / wb1* / wb1* | wb1* / wb1* / wb1* |
 
 ## Dialogues whose final answer differs between repeats
 

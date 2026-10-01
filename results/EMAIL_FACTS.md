@@ -43,7 +43,7 @@ V1 是 Office 的 15 題對話，每個條件跑 3 次，每次一個檔，例�
 - C5 仍有不穩定的題目。A4 三次分別答 chair 3、chair 4、chair 6，正解是 chair 5。A1 三次都錯。
 - 只有 15 題、一個場景、一個模型，差 1 題就是 0.067。
 
-## 三 Office 四題白板的作者正解可能錯位
+## 三 Office 四題白板的作者編號跟我們圖上的編號不同
 
 信裡可以這樣寫。Office 的四題白板題，人和 Claude 在前三題都一致答成作者正解的下一號白板，想請教這四題的正解標註是否可能有錯位，或是我們對「旁邊」的理解跟你們不同。
 
@@ -67,9 +67,9 @@ V1 是 Office 的 15 題對話，每個條件跑 3 次，每次一個檔，例�
 - `writing` 原本存成 whiteboard 4，使用者說明當時把題目讀成「寫字那塊旁邊的白板」，線索本身（有算式的白板）是 whiteboard 3，2026-10-01 改正並在檔內加了 `note`。`results/visdial_check/wb/view4_full.jpg` 裡寫著「What is ∠B?」算式的那塊框標 whiteboard3，whiteboard4 是空白的。
 - 依這三條線索，四題正解像整組往後錯一格。修正檔 `results/visdial_target_fix.json` 寫成 A11 為 whiteboard 2、A12 為 whiteboard 3、A13 為 whiteboard 4、A14 為 whiteboard 1。
 
-正解修正後的敏感度分析，用 `python scripts/summarize_visdial.py --fix results/visdial_target_fix.json` 產生，數字在 `results/visdial_summary.md` 第一張表的最後兩欄（`found, targets fixed` 與 `T_A, targets fixed`）。原本的正解仍是主要結果，這兩欄只是敏感度。
+2026-10-01 起，翻譯後的正解是 V1 的主要結果（使用者的決定，理由見 PLAN.md 5.0）。作者評估用的圖只框目標類別（`VLM.ipynb` cell 0 第 10 到 17 行讀 `label/chair/` 底下的圖，存下來的輸出圖只有椅子有框），白板題的圖沒有公開，編號由 `img_bounding_box_number.ipynb` cell 0 第 24 到 25 行依偵測順序產生，所以作者答案與 LabelMe 框是兩套編號，不能直接說作者標錯。數字由 `python scripts/summarize_visdial.py` 產生（預設讀 `results/visdial_target_fix.json`），主表用翻譯後的正解，作者原本編號的數字在最後兩欄（`found, authors' numbering` 與 `T_A, authors' numbering`）。本文件第一、二點引用的 0.600、0.178、0.578 是作者原本編號下的數字，翻譯後分別是 0.733、0.444、0.844。
 
-| 條件 | 找到（原正解） | 找到（修正後） | T_A（原正解） | T_A（修正後） |
+| 條件 | 找到（作者原本編號） | 找到（翻譯後，主要結果） | T_A（作者原本編號） | T_A（翻譯後，主要結果） |
 | --- | --- | --- | --- | --- |
 | 論文 GPT-4o | 無 | 無 | 0.860 | 無 |
 | 人類（一人） | 0.600 | 0.733 | 0.600 | 0.733 |
@@ -83,7 +83,8 @@ V1 是 Office 的 15 題對話，每個條件跑 3 次，每次一個檔，例�
 - Claude 四個影像條件在 A11 到 A14 的 12 次答案都跟修正後的正解一致，所以每個條件 3 次合計多找到 12 題次。例如 C5 從 26／45 變成 38／45，multi_image 從 8／45 變成 20／45。
 - 修正後 C5 的找到比例（0.844）高於人類（0.733），T_A 則差不多（0.723 對 0.733）。人類只有一人作答一次，這個比較只能當參考。
 - 修正後所有條件仍低於論文的 0.86，發現一的結論不變。
-- 信裡建議只寫「四題白板題人和 Claude 都一致答成下一號」，修正後的分數放附件或不提，避免看起來像自己改正解來拉分數。
+- 信裡建議只寫「四題白板題人和 Claude 都一致答成下一號，我們推測是兩套編號不同」，並請作者確認白板題用的圖。翻譯後的分數要寫的話，兩種編號的數字都附上。
+- 作者 `color_image_3.json` 與 `color_image_2.json` 完全相同，我們 view 3 的 `whiteboard2` 框框住的是 AI 字樣立牌，沒有白板。這也可以順帶請教。
 
 ## 四 V2 數量答對不代表指對了物件
 

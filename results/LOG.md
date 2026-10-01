@@ -304,3 +304,13 @@
 - 根目錄 `sda-llm-repro.zip` 在 691a4ef 被 commit 過，已從 git 移除（本機檔案保留），並加進 `.gitignore`。它仍在 git 歷史裡，如果要從歷史中徹底刪掉需要改寫歷史，這一步沒有做。
 - PLAN.md 第 9 節的 README.md 改成「中文簡介」，`results/` 底下補上 RESULTS.md 一行。
 - 前一輪我寫「沒有跟論文的場景表比對」，其實 PLAN.md 3.0 第 1 點早已記下資料夾名稱與論文對調的情況，這裡更正。
+
+## 2026-10-01 白板題正解改用我們圖上的編號當主要結果（未呼叫 API）
+
+- 使用者決定 V1 的主要結果改用「依我們圖上標籤翻譯後的正解」。規則是保留作者要找的物件，只把編號換成我們圖上的編號，只適用 A11 到 A14，其他題目照作者答案。PLAN.md 5.0 已更新並寫了原因。
+- 原因先查證過。作者 `Code/VLM.ipynb` cell 0 第 10 到 17 行讀的圖在 `label/chair/` 底下，我把它存下來的輸出圖解出來看（只存在 scratchpad，沒有進 repo），8 張圖只有椅子有紅框，白板沒有框。`Code/img_bounding_box_number.ipynb` cell 0 第 24 到 25 行依 YOLO 偵測順序給編號，計數在 8 張圖之間累加（第 49 到 51 行）。所以作者答案的白板編號與公開的 LabelMe 框名稱是兩套系統。
+- `results/visdial_target_fix.json` 改成每題一個物件，含 `author_target`、`target`、`author_description`、`our_label`、`reason`。理由寫明依據是圖片與描述，不是模型答案。
+- `summarize_visdial.py` 的 `--fix` 改成 `--targets`，預設讀上面的檔，主表用翻譯後的正解，作者原本編號下的找到比例與 T_A 移到最後兩欄（`found, authors' numbering`、`T_A, authors' numbering`），`--targets ""` 可以全部改回作者編號。逐題表多一欄作者編號，星號依翻譯後的正解標。
+- 主表的新數字（3 次平均）。人類找到 0.733、contains 0.933、T_A 0.733。multi_image 0.444、0.889、0.366。grid 0.467、0.756、0.377。text_only 0、0.867、0。multi_image_text 0.489、0.933、0.391。C5 0.844、0.844、0.723。作者原本編號下的數字跟之前相同。所有條件的 T_A 仍低於論文的 0.86。
+- 記下兩個限制，這一輪都不重跑。第一，作者 `Object_Bounding_Box/color_image_3.json` 與 `color_image_2.json` 逐位元相同（`imagePath` 都是 `color_image_2.jpg`），所以我們 view 3 有一個假的 `whiteboard2` 框，我看過圖，框住的是白色 AI 字樣立牌與玻璃牆，沒有白板。第二，我們的圖畫了所有類別的框，作者評估用的圖只畫目標類別，這是重現上的差異。
+- README.md、RESULTS.md、EMAIL_FACTS.md 的 V1 數字與說法同步改成以翻譯後的正解為主，作者原本編號的數字一併列出。

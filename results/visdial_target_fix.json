@@ -1,6 +1,30 @@
 {
- "A11": "whiteboard 2",
- "A12": "whiteboard 3",
- "A13": "whiteboard 4",
- "A14": "whiteboard 1"
+ "A11": {
+  "author_target": "whiteboard 1",
+  "target": "whiteboard 2",
+  "author_description": "Help me find the whiteboard with a heart next to it.",
+  "our_label": "whiteboard 2（view 2 的 LabelMe 框，紅色愛心立牌就在它旁邊。view 3 的同名框來自重複的標註檔，見 RESULTS.md 限制）",
+  "reason": "保留作者要找的物件，也就是旁邊有愛心的那塊白板，只把編號換成我們圖上的標籤。依據是裁切圖與描述（results/visdial_check/whiteboards_answers.json 的 heart 欄，使用者與 Claude 各自看圖判斷一致），不是模型答案。"
+ },
+ "A12": {
+  "author_target": "whiteboard 2",
+  "target": "whiteboard 3",
+  "author_description": "Help me find the whiteboard with writing on it.",
+  "our_label": "whiteboard 3（view 4 左邊那塊，上面寫著 What is ∠B? 與餘弦定理算式）",
+  "reason": "保留作者要找的物件，也就是寫了字的那塊白板，只把編號換成我們圖上的標籤。依據是裁切圖與描述（whiteboards_answers.json 的 writing 欄），不是模型答案。"
+ },
+ "A13": {
+  "author_target": "whiteboard 3",
+  "target": "whiteboard 4",
+  "author_description": "Help me find the whiteboard next to the whiteboard with writing on it.",
+  "our_label": "whiteboard 4（view 4 右邊那塊空白白板，緊鄰寫字的 whiteboard 3，作者座標表 whiteboard_3 與 whiteboard_4 相距約 0.6 m）",
+  "reason": "保留作者要找的物件，也就是寫字白板旁邊那一塊，只把編號換成我們圖上的標籤。依據是 A12 的寫字白板位置與 view 4 的圖，不是模型答案。"
+ },
+ "A14": {
+  "author_target": "whiteboard 4",
+  "target": "whiteboard 1",
+  "author_description": "Help me find the whiteboard next to the cable.",
+  "our_label": "whiteboard 1（view 0 的 LabelMe 框，旁邊有電線）",
+  "reason": "保留作者要找的物件，也就是電線旁邊的白板，只把編號換成我們圖上的標籤。依據是裁切圖與描述（whiteboards_answers.json 的 cable 欄），不是模型答案。"
+ }
 }
