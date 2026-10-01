@@ -267,3 +267,23 @@
 - V2 where 檢查表。新增 `scripts/make_v2_check.py`，輸出 `results/v2_check/index.html`（`.gitignore` 已加入 `results/v2_check/`）。40 組各列出每一句、作者的數量、模型的數量、模型最後的 where 文字、where 提到的視角大圖（40 組都有提到視角編號）與全部 8 張小圖，可以選指對、指錯、看不出來並下載 JSON。
 - 兩個新頁面的腳本都用 node 檢查過語法，沒有在瀏覽器實際點過。
 - Track V 到目前的全部實際花費約 2.02 美元（未快取輸入 178999、輸出 52583、cache 讀取 3893263、cache 寫入 144155 token）。
+
+## 2026-10-01 盤點與寫信用的事實整理（未呼叫 API）
+
+- 這一輪只讀檔與整理，沒有呼叫任何付費 API，也沒有跑新實驗。查作者時讀了 arXiv 摘要頁與 GitHub 公開 API。
+- 使用者提到的交接文檔不在 repo 裡，所以各項狀態依本檔與結果檔判斷。人類基準與 15 題逐題對照表已完成（`results/human_office/answers.json`、`results/visdial_summary.md`）。白板裁切頁部分完成，`results/visdial_check/whiteboards.html` 已做好，但還沒有使用者的判斷 JSON。C5 forced_choice 已完成（`results/raw_visdial/trackA_forced_choice__*__r1..r3.jsonl`）。V2 where 檢查表已完成，使用者 40 組都判過（`results/v2_check/answers.json`）。V2 人工判斷彙整在這一輪做完，寫在 `results/EMAIL_FACTS.md`。
+- V2 人工判斷為指對 27 組、指錯 6 組、看不出來 7 組。指對占全部 0.675，不算看不出來時為 27／33 = 0.818。最後一輪數量正確的 34 組裡只有 23 組指對，數量錯誤的 6 組裡有 4 組指對。
+- 從 raw 檔重算 V1 各條件，與 `visdial_summary.md` 到小數第三位一致。C5 找到 0.578、contains 0.578、T_A 0.457（3 次為 0.446、0.451、0.473），multi_image 找到 0.178、contains 0.622、T_A 0.100。
+- 找到兩處說法要更正。上面 Track V 全跑那一段寫「40 組最後一輪都是 1 個」，其實是作者的數量 40 組都是 1，模型最後一輪是 1 的只有 34 組。每輪數量正確 0.496 是先算每組再平均，98 輪合併計算是 0.459。
+- 作者查證。IROS 正式版作者依序為 Kuan-Lin Chen、Tzu-Ti Wei、Ming-Lun Lee、Li-Tzu Yeh、Elaine Kao、Yu-Chee Tseng、Jen-Jee Chen。GitHub CKL9001（Chen Kuan Lin）同時擁有 SDA-LLM 與 AlloEgo-VLM 兩個 repo，AlloEgo-VLM 是 arXiv 2608.15605，第一作者也是 Kuan-Lin Chen。兩篇的作者名單都沒有 Cheng-Kuan Lin。
+- 新增 `results/EMAIL_FACTS.md`，三個發現各一段，每個數字都附來源檔與欄位。
+- 檢查 git。這一輪之前工作區是乾淨的，先前的結果都在 commit 7556305。`data/`、`third_party/`、`results/m2_check*/`、`results/human_office/`、`results/v2_check/` 都被 `.gitignore` 擋住，`git ls-files` 也沒有列出這些路徑。這一輪新增的 `results/EMAIL_FACTS.md` 與本段還沒有 commit。
+
+## 2026-10-01 白板判斷比對、EMAIL_FACTS 改成四點（未呼叫 API）
+
+- 使用者的白板判斷存在 `results/visdial_check/whiteboards_answers.json`（不進 git），愛心為 whiteboard 2、寫字為 whiteboard 4、電線為 whiteboard 1。跟我前一天的判斷比，愛心與電線一致，寫字不一致（我判 whiteboard 3）。我重看 `wb/view4_full.jpg`，有算式的那塊框標 whiteboard3，whiteboard4 是空白的，使用者在作答表 A12 也答 whiteboard 3。照使用者指示，不一致時不改正解，所以沒有建立修正檔，也沒有執行 `summarize_visdial.py --fix`，`summarize_visdial.py` 沒有改動。等使用者再確認寫字那一塊。
+- 讀作者 `Code/VLM.ipynb`。整本只有一個 code cell，第 41 行 `while True:`、第 43 行 `input(...)` 由人即時輸入，第 47 到 48 行輸入 `ee` 才結束，第 75 到 78 行超過 10 輪就中止，第 35 行的系統提示寫 until the unique object is confirmed by the user。存下來的輸出是人打的三輪對話，句子跟 CSV 不同。`llava.ipynb` 有同樣的迴圈，7 個 notebook 都沒有讀對話 CSV。
+- 使用者說 A0 到 A2 只有一句話，查 CSV 後 A0 與 A2 是一句、A1 是兩句，人類三題最後都停在兩張椅子，已在 EMAIL_FACTS 註明。
+- `results/EMAIL_FACTS.md` 改成四點，依序是照 CSV 重播達不到 0.86、Claude 不敢下決定（C5）、白板正解可能錯位、V2 數量對不等於指對，每點附一句請教語氣的信件摘要。
+- 打開 Type B 的圖看場景名稱。Classroom_1 到 3 的圖是學生餐廳（餐桌、紙巾盒、取餐區、TRAY RETURN 告示），資料夾內的對話也在講取餐與餐盤回收，圖與對話一致，只有資料夾名稱寫 Classroom。順帶看到 Cafeteria_1 到 3 是會議室與辦公桌，Meeting_room_II 像教室（門旁有 D202 與給學生的告示）。只記觀察，沒有改任何程式或資料對應。
+- 這一輪沒有呼叫付費 API。
