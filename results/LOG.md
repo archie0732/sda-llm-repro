@@ -287,3 +287,11 @@
 - `results/EMAIL_FACTS.md` 改成四點，依序是照 CSV 重播達不到 0.86、Claude 不敢下決定（C5）、白板正解可能錯位、V2 數量對不等於指對，每點附一句請教語氣的信件摘要。
 - 打開 Type B 的圖看場景名稱。Classroom_1 到 3 的圖是學生餐廳（餐桌、紙巾盒、取餐區、TRAY RETURN 告示），資料夾內的對話也在講取餐與餐盤回收，圖與對話一致，只有資料夾名稱寫 Classroom。順帶看到 Cafeteria_1 到 3 是會議室與辦公桌，Meeting_room_II 像教室（門旁有 D202 與給學生的告示）。只記觀察，沒有改任何程式或資料對應。
 - 這一輪沒有呼叫付費 API。
+
+## 2026-10-01 白板正解敏感度分析（未呼叫 API）
+
+- 使用者說明白板判斷的 `writing` 原本把題目讀成「寫字那塊旁邊的白板」才選 whiteboard 4，線索本身是 whiteboard 3。`results/visdial_check/whiteboards_answers.json` 已改成 whiteboard 3 並加註記，三條線索現在跟我的判斷一致。
+- 新增修正檔 `results/visdial_target_fix.json`，A11 為 whiteboard 2、A12 為 whiteboard 3、A13 為 whiteboard 4、A14 為 whiteboard 1。
+- `summarize_visdial.py --fix` 原本只加一欄修正後的 T_A，改成兩欄（修正後的找到比例與 T_A）。PLAN.md 5.0 已同步把「另加一欄」改成「另加兩欄」，原因是寫信需要同時報找到比例。原始正解仍是主要結果。
+- 修正後的結果（3 次平均）。人類找到 0.733、T_A 0.733。multi_image 找到 0.444、T_A 0.366。grid 找到 0.467、T_A 0.377。text_only 都是 0。multi_image_text 找到 0.489、T_A 0.391。C5 找到 0.844、T_A 0.723。Claude 四個影像條件在四題白板的 12 次答案都符合修正後的正解，人類 A14 答 wb4 從對變錯。修正後 C5 的找到比例高於人類，所有條件的 T_A 仍低於論文的 0.86。
+- `results/EMAIL_FACTS.md` 第三點補上這張表，標題拿掉「兩個人的判斷還沒一致」。

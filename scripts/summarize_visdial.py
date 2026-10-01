@@ -3,7 +3,7 @@
 V1 (Type A, Office): per condition, the mean over repeats of found rate, the lenient 'final set contains the
 target' rate, SR, AS, T_A, with the range over repeats, next to the paper's GPT-4o numbers for Office and a
 human baseline (make_human_sheet.py, scored with metrics.score_type_a). A per-dialogue table shows the
-final answers. `--fix` adds a sensitivity column with corrected targets; the original targets stay the
+final answers. `--fix` adds sensitivity columns (found, T_A) with corrected targets; the original targets stay the
 main result. V2 (Type B): per-turn count accuracy. Also lists the dialogues whose final answer differs
 between repeats, and the token cost.
 
@@ -30,7 +30,7 @@ ap.add_argument("--raw", default="results/raw_visdial")
 ap.add_argument("--root", default="third_party/SDA-LLM/Dataset")
 ap.add_argument("--out", default="results/visdial_summary.md")
 ap.add_argument("--human", default="results/human_office/answers.json", help="make_human_sheet.py download")
-ap.add_argument("--fix", default="", help="JSON {dialogue: corrected target tag}, sensitivity column only")
+ap.add_argument("--fix", default="", help="JSON {dialogue: corrected target tag}, sensitivity columns only")
 ap.add_argument("--price_in", type=float, default=2.0)
 ap.add_argument("--price_out", type=float, default=10.0)
 ap.add_argument("--price_cache_read", type=float, default=0.2)
@@ -102,19 +102,20 @@ if os.path.exists(a.human):
     human = {did: [[ps.name_map[norm_name(t)] for t in p] for p in H[q]["picks"]]
              for did, q in qid.items() if q in H and H[q].get("done")}
 
-fix_col = " | T_A, whiteboard targets fixed by the drawn labels" if fix else ""
+fix_col = " | found, targets fixed | T_A, targets fixed" if fix else ""
 L += ["## V1 Office, Type A (15 dialogues)", "",
       f"| condition | repeats | dialogues per repeat | found | contains | final set size | SR | AS | T_A | turns used | cost per repeat (USD){fix_col} |",
-      "| --- " * (11 + bool(fix)) + "|",
+      "| --- " * (11 + 2 * bool(fix)) + "|",
       f"| paper, GPT-4o | 1 | 15 | - | - | - | {PAPER_OFFICE['SR']:.3f} | {PAPER_OFFICE['AS']:.3f} | {PAPER_OFFICE['T_A']:.3f} | - | -"
-      + (" | -" if fix else "") + " |"]
+      + (" | - | -" if fix else "") + " |"]
 if human:
     S = [scores(did, p) for did, p in human.items()]
     row = (f"| human (same protocol, one person) | 1 | {len(S)} | {mean([s['found'] for s in S]):.3f} | "
            f"{mean([s['contains'] for s in S]):.3f} | {mean([s['size'] for s in S]):.2f} | {mean([s['SR'] for s in S]):.3f} | {mean([s['AS'] for s in S]):.3f} | "
            f"{mean([s['T_A'] for s in S]):.3f} | {mean([s['alpha'] for s in S]):.3f} | -")
     if fix:
-        row += f" | {mean([scores(did, p, fix.get(qid[did]))['T_A'] for did, p in human.items()]):.3f}"
+        F = [scores(did, p, fix.get(qid[did])) for did, p in human.items()]
+        row += f" | {mean([s['found'] for s in F]):.3f} | {mean([s['T_A'] for s in F]):.3f}"
     L.append(row + " |")
 for cond in CONDS:
     reps = by_cond.get(cond)
@@ -128,9 +129,10 @@ for cond in CONDS:
     c = mean([sum(cost(usage(r)) for r in rs) for rs in reps.values()])
     row = f"| {cond} | {len(reps)} | {'/'.join(map(str, n))} | " + " | ".join(cells) + f" | {c:.3f}"
     if fix:
-        per = [mean([scores(r["dialogue_id"], r["preds"], fix.get(qid[r["dialogue_id"]]))["T_A"] for r in rs])
-               for rs in reps.values()]
-        row += f" | {mean(per):.3f} [{min(per):.2f}–{max(per):.2f}]"
+        for key in ("found", "T_A"):
+            per = [mean([float(scores(r["dialogue_id"], r["preds"], fix.get(qid[r["dialogue_id"]]))[key]) for r in rs])
+                   for rs in reps.values()]
+            row += f" | {mean(per):.3f} [{min(per):.2f}–{max(per):.2f}]"
     L.append(row + " |")
 
 # per-dialogue table: final answers of the human and of each condition in each repeat

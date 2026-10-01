@@ -43,7 +43,7 @@ V1 是 Office 的 15 題對話，每個條件跑 3 次，每次一個檔，例�
 - C5 仍有不穩定的題目。A4 三次分別答 chair 3、chair 4、chair 6，正解是 chair 5。A1 三次都錯。
 - 只有 15 題、一個場景、一個模型，差 1 題就是 0.067。
 
-## 三 Office 四題白板的作者正解可能錯位（兩個人的判斷還沒一致）
+## 三 Office 四題白板的作者正解可能錯位
 
 信裡可以這樣寫。Office 的四題白板題，人和 Claude 在前三題都一致答成作者正解的下一號白板，想請教這四題的正解標註是否可能有錯位，或是我們對「旁邊」的理解跟你們不同。
 
@@ -56,17 +56,34 @@ V1 是 Office 的 15 題對話，每個條件跑 3 次，每次一個檔，例�
 
 - Claude 的答案來自 multi_image、grid、multi_image_text、forced_choice 各 3 個 raw 檔的 `preds` 最後一項，作者正解來自同一筆的 `target`。text_only 3 次都列出全部 4 塊白板，不算在內。人類作答來自 `results/human_office/answers.json` 的 `A11` 到 `A14`。
 
-使用者看裁切圖後的判斷（`results/visdial_check/whiteboards_answers.json`，2026-10-01 存檔）與我在 LOG.md 2026-09-30 寫下的判斷比較如下。
+使用者看裁切圖後的判斷存在 `results/visdial_check/whiteboards_answers.json`（`heart`、`writing`、`cable` 三欄），與我在 LOG.md 2026-09-30 寫下的判斷一致。
 
-| 線索 | 使用者判斷 | Claude 判斷 | 一致 |
-| --- | --- | --- | --- |
-| 愛心（`heart`） | whiteboard 2 | whiteboard 2（view 2） | 是 |
-| 寫字（`writing`） | whiteboard 4 | whiteboard 3（view 4） | 否 |
-| 電線（`cable`） | whiteboard 1 | whiteboard 1（view 0） | 是 |
+| 線索 | 使用者判斷 | Claude 判斷 |
+| --- | --- | --- |
+| 愛心（`heart`） | whiteboard 2 | whiteboard 2（view 2） |
+| 寫字（`writing`） | whiteboard 3 | whiteboard 3（view 4） |
+| 電線（`cable`） | whiteboard 1 | whiteboard 1（view 0） |
 
-- 寫字這一項不一致。我重看了 `results/visdial_check/wb/view4_full.jpg`，寫著「What is ∠B?」與餘弦定理算式的那一塊，框的標籤是 whiteboard3，右邊標 whiteboard4 的那一塊是空白的。使用者在作答表 A12（with writing on it）也是答 whiteboard 3。所以這一項可能是裁切頁上點錯，也可能是使用者對框的理解跟我不同，需要使用者再看一次。
-- 照指示，判斷不一致時不改正解，所以這一輪沒有建立修正檔，也沒有執行 `summarize_visdial.py --fix`，敏感度欄還沒有數字。
-- 如果兩人最後都同意寫字在 whiteboard 3，四題正解就像整組往後錯一格（A11 應為 wb2、A12 應為 wb3、A13 應為 wb4、A14 應為 wb1）。如果寫字是在 whiteboard 4，則 A12 應為 wb4，A13 要看 wb4 旁邊是哪一塊，錯位的說法就不成立。
+- `writing` 原本存成 whiteboard 4，使用者說明當時把題目讀成「寫字那塊旁邊的白板」，線索本身（有算式的白板）是 whiteboard 3，2026-10-01 改正並在檔內加了 `note`。`results/visdial_check/wb/view4_full.jpg` 裡寫著「What is ∠B?」算式的那塊框標 whiteboard3，whiteboard4 是空白的。
+- 依這三條線索，四題正解像整組往後錯一格。修正檔 `results/visdial_target_fix.json` 寫成 A11 為 whiteboard 2、A12 為 whiteboard 3、A13 為 whiteboard 4、A14 為 whiteboard 1。
+
+正解修正後的敏感度分析，用 `python scripts/summarize_visdial.py --fix results/visdial_target_fix.json` 產生，數字在 `results/visdial_summary.md` 第一張表的最後兩欄（`found, targets fixed` 與 `T_A, targets fixed`）。原本的正解仍是主要結果，這兩欄只是敏感度。
+
+| 條件 | 找到（原正解） | 找到（修正後） | T_A（原正解） | T_A（修正後） |
+| --- | --- | --- | --- | --- |
+| 論文 GPT-4o | 無 | 無 | 0.860 | 無 |
+| 人類（一人） | 0.600 | 0.733 | 0.600 | 0.733 |
+| multi_image | 0.178 | 0.444（0.40–0.47） | 0.100 | 0.366（0.34–0.38） |
+| grid | 0.200 | 0.467（0.47–0.47） | 0.110 | 0.377（0.38–0.38） |
+| text_only | 0.000 | 0.000 | 0.000 | 0.000 |
+| multi_image_text | 0.222 | 0.489（0.47–0.53） | 0.124 | 0.391（0.38–0.41） |
+| forced_choice（C5） | 0.578 | 0.844（0.80–0.87） | 0.457 | 0.723（0.71–0.74） |
+
+- 人類修正後是 15 題對 11 題。A11 到 A13 從錯變對，A14 從對變錯（人類答 wb4）。
+- Claude 四個影像條件在 A11 到 A14 的 12 次答案都跟修正後的正解一致，所以每個條件 3 次合計多找到 12 題次。例如 C5 從 26／45 變成 38／45，multi_image 從 8／45 變成 20／45。
+- 修正後 C5 的找到比例（0.844）高於人類（0.733），T_A 則差不多（0.723 對 0.733）。人類只有一人作答一次，這個比較只能當參考。
+- 修正後所有條件仍低於論文的 0.86，發現一的結論不變。
+- 信裡建議只寫「四題白板題人和 Claude 都一致答成下一號」，修正後的分數放附件或不提，避免看起來像自己改正解來拉分數。
 
 ## 四 V2 數量答對不代表指對了物件
 
