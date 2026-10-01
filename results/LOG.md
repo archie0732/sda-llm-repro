@@ -295,3 +295,12 @@
 - `summarize_visdial.py --fix` 原本只加一欄修正後的 T_A，改成兩欄（修正後的找到比例與 T_A）。PLAN.md 5.0 已同步把「另加一欄」改成「另加兩欄」，原因是寫信需要同時報找到比例。原始正解仍是主要結果。
 - 修正後的結果（3 次平均）。人類找到 0.733、T_A 0.733。multi_image 找到 0.444、T_A 0.366。grid 找到 0.467、T_A 0.377。text_only 都是 0。multi_image_text 找到 0.489、T_A 0.391。C5 找到 0.844、T_A 0.723。Claude 四個影像條件在四題白板的 12 次答案都符合修正後的正解，人類 A14 答 wb4 從對變錯。修正後 C5 的找到比例高於人類，所有條件的 T_A 仍低於論文的 0.86。
 - `results/EMAIL_FACTS.md` 第三點補上這張表，標題拿掉「兩個人的判斷還沒一致」。
+
+## 2026-10-01 README 中文版、RESULTS.md 與 repo 整理（未呼叫 API）
+
+- 使用者新增 `results/RESULTS.md`，並把 `README.md` 改成中文版。我逐項對照結果檔與腳本參數，大部分數字與指令都正確，例如 V1 各條件、V2 交叉表、去重表、花費 2.02 美元、`run_visdial.py` 與 `download_arkit.sh` 的參數。
+- 修了五處。README 第三個觀察原本寫修正後「各條件分數都會上升」，text_only 仍是 0，改成除了 text_only 以外。RESULTS 寫「四題的 12 次答案」，其實是每題 12 次，共 48 次。RESULTS 推估 40 支可用 28 支，用 7 到 8 成的比例應為 28 到 32 支。RESULTS 說 D2 的主要失敗是 6 張椅子擠在 0.3 m 內，那是第一版（3D 框投影）時 48458417 的診斷，已註明版本。RESULTS 說資料夾錯開「在 PLAN.md 3.0 已經記下」，PLAN 只記了 Classroom_1 與 Cafeteria_2，Meeting_room_II 是新的觀察，已改清楚。
+- `trackA_multi_image_text__claude-sonnet-5-5__r3.jsonl.bak` 跟現行檔比對，15 筆裡只有 A5 的 `preds` 不同（備份是空答案，現行是 chair 5、chair 6），模型回覆完全相同，確認是修正 `parse_json` 前的備份。已從 git 移除（本機檔案保留），`.gitignore` 加上 `*.bak`。`summarize_visdial.py` 只讀 `*.jsonl`，不受影響。
+- 根目錄 `sda-llm-repro.zip` 在 691a4ef 被 commit 過，已從 git 移除（本機檔案保留），並加進 `.gitignore`。它仍在 git 歷史裡，如果要從歷史中徹底刪掉需要改寫歷史，這一步沒有做。
+- PLAN.md 第 9 節的 README.md 改成「中文簡介」，`results/` 底下補上 RESULTS.md 一行。
+- 前一輪我寫「沒有跟論文的場景表比對」，其實 PLAN.md 3.0 第 1 點早已記下資料夾名稱與論文對調的情況，這裡更正。

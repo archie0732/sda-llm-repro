@@ -246,7 +246,7 @@ Claude 的影像大約每 750 像素算 1 個 token，640×480 一張約 410 tok
 sda-llm-repro/
   PLAN.md              本計畫書（實驗定義以此為準）
   CLAUDE.md            給 Claude Code 的工作規則
-  README.md            英文簡介
+  README.md            中文簡介
   pyproject.toml
   src/sdarepro/
     scene.py           資料結構
@@ -275,6 +275,7 @@ sda-llm-repro/
   tests/test_core.py
   data/                不進 git
   results/             summary.md、圖表與 raw JSONL
+    RESULTS.md         目前所有結果的整理（細節以 LOG.md 為準）
 ```
 
 ---

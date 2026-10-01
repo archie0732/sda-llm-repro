@@ -11,3 +11,5 @@ results/m2_check/
 results/m2_check_v*/
 results/human_office/
 results/v2_check/
+*.bak
+sda-llm-repro.zip
