@@ -38,6 +38,9 @@ class PreparedScene:
     name_map: Optional[dict] = None   # drawn tag name -> obj_id, for name-style tags (VisDial)
     # VisDial C6: per object class, the views with only that class boxed (see visdial.load_type_a)
     class_only_annot: Optional[dict] = None
+    # VisDial: per view, obj_id -> box in pixels of images_annot (LabelMe), and views whose box file is a copy
+    view_boxes: Optional[list] = None
+    dup_views: Optional[list] = None
 
 
 def _obj_to_json(o: Object3D) -> dict:

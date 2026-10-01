@@ -12,6 +12,7 @@ dependencies = ["numpy", "pillow", "opencv-python-headless", "anthropic", "panda
 [project.optional-dependencies]
 dev = ["pytest"]
 detect = ["ultralytics"]
+web = ["fastapi", "uvicorn"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

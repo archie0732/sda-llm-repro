@@ -100,12 +100,15 @@ def load_type_a(scene_dir: str, max_side: int = 1080) -> PreparedScene:
         s = max_side / max(im.size)
         return im.resize((int(im.width * s), int(im.height * s)))
 
+    view_boxes = []
     for v, boxes, w, h in views:
         img = Image.open(os.path.join(scene_dir, "RGB_image", f"color_image_{v}.jpg")).convert("RGB")
         f = Frame(frame_id=str(v), timestamp=float(v), pose=np.eye(4), K=np.eye(3), width=w or img.width,
                   height=h or img.height)
         vb = ViewBoxes(frame=f, boxes={name_map[n]: b for n, b in boxes.items()})
         annot.append(fit(draw_view(img, vb, labels, scale=img.width / f.width, tags=tags)))
+        k = annot[-1].width / f.width   # LabelMe box -> pixel of the stored (fitted) image, for the web overlay
+        view_boxes.append({o: tuple(round(x * k, 1) for x in b) for o, b in vb.boxes.items()})
         # C6 target_class_only: the authors' VLM.ipynb reads images that box only the target class
         # (label/chair/). A view whose box file duplicates an earlier view's gets no boxes at all.
         for c in classes:
@@ -128,7 +131,8 @@ def load_type_a(scene_dir: str, max_side: int = 1080) -> PreparedScene:
             dialogues.append({"dialogue_id": f"{scene_id}-A{k}", "scene_id": scene_id, "dtype": "A", "target": target,
                               "turns": [{"text": t, "gt_set": [target], "kind": "human"} for t in turns]})
     return PreparedScene(scene_id, ctx, heads, raw, annot, make_grid(annot), dialogues, name_map=name_map,
-                         class_only_annot=class_only)
+                         class_only_annot=class_only, view_boxes=view_boxes,
+                         dup_views=[i for i, (v, _, _, _) in enumerate(views) if v in dup_views])
 
 
 def load_type_b(folder: str, max_side: int = 1280) -> dict:

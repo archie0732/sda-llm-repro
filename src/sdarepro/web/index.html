@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDA-LLM 即時對話</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <h1>SDA-LLM 即時對話</h1>
+    <span id="model" class="badge"></span>
+  </div>
+  <nav class="modes" role="tablist">
+    <button id="tab-exp" class="tab active" role="tab" aria-selected="true">實驗模式</button>
+    <button id="tab-demo" class="tab" role="tab" aria-selected="false">展示模式</button>
+  </nav>
+  <div class="usage" id="usage" title="這個紀錄檔累計的 token 與估計花費"></div>
+</header>
+
+<section class="progress" id="progress-bar">
+  <ol id="progress" aria-label="15 題進度"></ol>
+  <div class="legend">
+    <span><i class="dot todo"></i>未開始</span><span><i class="dot active"></i>進行中</span>
+    <span><i class="dot found"></i>找到</span><span><i class="dot missed"></i>沒找到</span>
+    <label class="switch"><input type="checkbox" id="show-target" checked> 顯示正解</label>
+  </div>
+</section>
+
+<section class="demo-bar" id="demo-bar" hidden>
+  <label>圖組
+    <select id="demo-set">
+      <option value="chair">椅子</option>
+      <option value="whiteboard">白板</option>
+      <option value="all">全部類別</option>
+    </select>
+  </label>
+  <button id="demo-new" class="btn">新對話</button>
+  <span class="note">展示模式的紀錄另存在 <code id="demo-path"></code>，不會混進實驗數據，也不檢查輸入規則。</span>
+</section>
+
+<main class="layout">
+  <section class="views" aria-label="8 張圖">
+    <div class="grid" id="grid"></div>
+    <p class="hint"><i class="sw cand"></i>這一輪的候選 <i class="sw final"></i>最後答案 <i class="sw target"></i>正解（可隱藏）　點圖可以放大</p>
+  </section>
+
+  <section class="chat" aria-label="對話">
+    <div class="qhead" id="qhead"></div>
+    <ol class="log" id="log" aria-live="polite"></ol>
+    <div class="endnote" id="endnote" hidden></div>
+    <form id="form" autocomplete="off">
+      <textarea id="input" rows="2" placeholder="描述看得到的特徵，例如：the chair next to the umbrella"></textarea>
+      <p class="err" id="err" role="alert"></p>
+      <div class="actions">
+        <button type="submit" class="btn primary" id="send">送出</button>
+        <button type="button" class="btn" id="ee">結束（ee）</button>
+        <button type="button" class="btn primary" id="start" hidden>開始這題（送出第一句）</button>
+        <button type="button" class="btn" id="next">下一題</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<dialog id="zoom">
+  <div class="zoom-inner" id="zoom-inner"></div>
+  <form method="dialog"><button class="btn">關閉</button></form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

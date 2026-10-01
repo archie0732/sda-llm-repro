@@ -169,6 +169,15 @@ V1 另外有一個即時對話版本（`scripts/live_dialogue.py`），照作者
 5. 每一輪（使用者的句子、模型的候選與原文、時間、token）一收到回覆就寫進 `results/raw_visdial/live__<model>__r<rep>.jsonl`，每題結束再寫一筆 end。重跑時跳過已結束的題目，中斷的題目用存下的文字重建對話後接著問，不重送已問過的輪次。
 6. 正解跟主表相同，用翻譯後的白板正解。
 
+即時對話有終端機版（`scripts/live_dialogue.py`）與本機網頁版（`scripts/live_web.py`，需要 `pip install -e ".[web]"`），兩者共用 `src/sdarepro/live.py` 的 `LiveSession`，每題流程、結束條件、輸入檢查、紀錄格式、續跑與計分都只寫在這裡，所以兩邊寫出的紀錄除了時間欄位以外完全相同（有測試檢查）。網頁版的規則如下。
+- 只綁 127.0.0.1，沒有改成其他介面的選項，也檢查 Host 標頭。不部署到 github.io 或任何公開網站，因為它會顯示作者沒有授權檔的圖，而且不加 `--dry_run` 時會花 `SDA_API_KEY` 的錢。
+- `SDA_API_KEY` 只在後端由 `ClaudeClient` 讀取，不傳到前端、不寫進檔案、不印出來。
+- 作者的圖從 `results/visdial_check/target_only/`（不進 git）讀，不複製到 `docs/`。
+- 實驗模式跑 Office A0 到 A14，紀錄寫進 `results/raw_visdial/live__<model>__r<rep>.jsonl`，跟終端機版同一個檔。打開一題不會呼叫 API，要按「開始這題」才送出第一句。正解預設顯示，可以關掉（demo 用）。
+- 展示模式可以選圖組（椅子、白板、全部類別），輸入任何句子，不檢查作答規則，紀錄另存到 `results/demo/`（不進 git），不算實驗數據。
+- 圖上的亮框用 LabelMe 座標畫，這一輪的候選是橘色，最後答案是綠色，正解是藍色虛線。
+- `--dry_run` 用固定回覆的假模型（第一輪回正解加同類的另一個，之後只回正解），紀錄寫到暫存資料夾，不會進 `results/`。
+
 使用者作答的規則如下，程式會擋下含數字或 view、image、photo、第幾張這類字的輸入並要求重打。
 - 只能描述看得到的特徵，例如顏色、桌上的東西、相對位置、旁邊的物件。
 - 不能說出編號（例如 chair 3），也不能說「第幾張圖」或「在 view 2 裡」。
@@ -282,11 +291,14 @@ sda-llm-repro/
     metrics.py         T_A、T_B
     dedup.py           Phase 2 去重
     visdial.py         作者公開資料（Track V）讀取
+    live.py            即時對話的規則與紀錄（終端機版與網頁版共用）
+    webapp.py, web/    本機網頁版的後端與前端
     synth.py           合成房間（測試用）
   scripts/
     fetch_visdial.sh   下載作者公開資料
     run_visdial.py     跑 Track V
-    live_dialogue.py   Track V 即時對話（照作者 VLM.ipynb）
+    live_dialogue.py   Track V 即時對話，終端機版（照作者 VLM.ipynb）
+    live_web.py        Track V 即時對話，本機網頁版（只綁 127.0.0.1）
     download_arkit.sh  下載 ARKitScenes
     select_scenes.py   挑場景
     prepare_all.py     前處理

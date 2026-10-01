@@ -342,3 +342,13 @@
 - 輸入含數字或 view、image、photo、tag、id、第幾張、號這類字時會被擋下要求重打，對應 PLAN.md 5.0 的作答規則（只能描述看得到的特徵，不能說編號或第幾張）。
 - 指標。即時對話沒有固定的 k，主要報找到比例與平均輪數，這兩個不受 k 影響。T_A 當次要參考，k 用答案檔該題的句數，SR 最低為 0，定義寫在 PLAN.md 第 7 節。
 - `--dry_run` 用腳本化的模型與輸入跑 A1 與 A11，輸出到 scratchpad。A1 第一輪回 chair 1、chair 2，輸入「the chair on the right of the lamp」後回 chair 2，找到，2 輪，T_A（k=2）0.55。A11 第一輪回兩塊白板，輸入「the board in view 2」被擋下，再輸入 ee 結束，沒找到。第二次執行兩題都被跳過，續跑判斷正常。這一步沒有呼叫 API。
+
+## 2026-10-02 即時對話的本機網頁版（未呼叫 API）
+
+- 把 `scripts/live_dialogue.py` 的核心邏輯抽成 `src/sdarepro/live.py` 的 `LiveSession`（每題流程、ee 結束、只回一個 ID 結束、回合計數超過 10 結束、輸入檢查、JSONL 紀錄、續跑、計分），另有 `DryRunClient`（不呼叫 API）與終端機迴圈 `drive_terminal`。終端機版改成薄的外殼，dry run 的輸出跟上一版相同。
+- 新增本機網頁版 `scripts/live_web.py`（FastAPI 加 uvicorn，放在 pyproject 的 `[web]`），後端在 `src/sdarepro/webapp.py`，前端是 `src/sdarepro/web/` 裡的純 HTML、CSS、JS。左邊 8 張圖（2×4，點圖放大），這一輪的候選用 LabelMe 座標標成橘色，最後答案綠色，正解藍色虛線（可以關掉）。右邊是對話紀錄、輸入框、送出、結束（ee）、下一題，違反作答規則時在輸入框下方顯示原因。上方是 15 題的進度與累計 token、估計花費。展示模式可選椅子、白板或全部類別的圖，不檢查規則，紀錄另存 `results/demo/`（已加進 `.gitignore`）。
+- 安全規則。只綁 127.0.0.1（寫死，沒有選項），用 TrustedHostMiddleware 擋其他 Host。`SDA_API_KEY` 只在後端的 `ClaudeClient` 讀取。圖從 `results/visdial_check/target_only/` 讀，啟動時寫在那裡（不進 git），沒有複製到 `docs/`。`--dry_run` 的紀錄寫到暫存資料夾，不會進 `results/`。
+- 測試時發現兩個問題並修正。第一，頁面載入時會自動打開上次的題目，如果那題還沒開始，會自動送出第一句，用真的模型時等於重新整理頁面就會花錢。改成打開題目不呼叫 API，要按「開始這題」才送出第一句。第二，`webapp.py` 用了 `from __future__ import annotations`，FastAPI 讀不到函式內定義的請求格式，把 body 當成查詢參數，送出一律回 422。拿掉這行後正常，終端機版與網頁版紀錄相同的測試會擋住這種錯誤。另外 CSS 的 `display: flex` 蓋過了 `hidden`，實驗模式也看得到展示模式的工具列，已修正。
+- 新增 4 項測試。輸入檢查（允許 the one on the right、between two windows，擋下 chair 3、view 2、the third photo、第二張圖、三號）、結束條件（只回一個 ID、ee、第 11 輪後超過 10 輪）、續跑（從存下的文字重建對話、不呼叫 API、第 3 輪接著寫）、終端機版與網頁版對 A1 與 A11 寫出的紀錄除時間欄位外完全相同。同一個測試也檢查展示模式不寫進實驗紀錄、回應裡沒有金鑰、其他 Host 被擋下、圖片路徑不能跳出資料夾。`pytest -q` 46 passed。
+- 用 `--dry_run` 啟動，再用 Playwright 跑完 A1 與 A11。A1 第一輪 chair 1、chair 2 兩個框亮橘色，輸入一句後 chair 2 變綠色，找到。A11 輸入「the board in view 2」時輸入框下方出現規則提示，換一句後 whiteboard 2 變綠色，找到。關掉正解後藍色虛線與標題的正解都消失。展示模式選全部類別也能亮框。瀏覽器主控台沒有錯誤。截圖在 scratchpad，含作者影像，沒有進 repo。
+- 這一輪沒有呼叫付費 API。

@@ -580,3 +580,117 @@ def test_tags_of_boxes_at_top_edge_do_not_overlap(monkeypatch):
         for j in range(i + 1, 3):
             a, b = tags[i], tags[j]
             assert a[2] < b[0] or a[0] > b[2] or a[3] < b[1] or a[1] > b[3], (a, b)
+
+
+# ---------------------------------------------------------------- live dialogue (terminal and web share sdarepro.live)
+def _strip_times(recs):
+    from sdarepro.live import TIME_FIELDS
+    return [{k: v for k, v in r.items() if k not in TIME_FIELDS} for r in recs]
+
+
+def test_live_check_input():
+    from sdarepro.live import check_input, is_ee
+    for ok in ["the chair next to the umbrella", "the one on the right", "between two windows"]:
+        assert check_input(ok) is None, ok
+    for bad in ["chair 3", "the board in view 2", "the third photo", "in the image on the left", "第二張圖的椅子",
+                "三號椅子", "  "]:
+        assert check_input(bad), bad
+    assert is_ee(" EE ") and not is_ee("see")
+
+
+def test_live_session_end_conditions(prepared, tmp_path):
+    from sdarepro.live import InputRejected, LiveSession, read_records
+    _, ps = prepared
+    dlg = next(d for d in ps.dialogues if d["dtype"] == "A")
+    out = str(tmp_path / "live.jsonl")
+    other = next(o.obj_id for o in ps.ctx.objects if o.obj_id != dlg["target"])
+    # never a single answer: the round counter passes 10 after round 11 (VLM.ipynb `if i > 10`)
+    s = LiveSession(ScriptedClient([{"candidate_ids": [dlg["target"], other]}] * 20), ps, out, "t", dlg=dlg,
+                    images=ps.images_annot)
+    s.send(s.first_sentence(), auto=True)
+    with pytest.raises(InputRejected):
+        s.send("the chair in view 2")
+    while not s.ended:
+        s.send("the one near the table")
+    assert s.end["reason"] == "max_round" and s.rounds == 11 and s.end["found"] is False
+    # a single answer ends at once and is scored
+    dlg2 = next(d for d in ps.dialogues if d["dtype"] == "A" and d["dialogue_id"] != dlg["dialogue_id"])
+    s2 = LiveSession(ScriptedClient([{"candidate_ids": [dlg2["target"]]}]), ps, out, "t", dlg=dlg2, images=ps.images_annot)
+    s2.send(s2.first_sentence(), auto=True)
+    assert s2.end["reason"] == "single" and s2.end["found"] and s2.end["rounds"] == 1
+    # ee
+    dlg3 = next(d for d in ps.dialogues if d["dialogue_id"] not in (dlg["dialogue_id"], dlg2["dialogue_id"]))
+    s3 = LiveSession(ScriptedClient([{"candidate_ids": [other, dlg3["target"]]}]), ps, out, "t", dlg=dlg3,
+                     images=ps.images_annot)
+    s3.send(s3.first_sentence(), auto=True)
+    assert s3.stop()["reason"] == "ee" and s3.end["rounds"] == 1
+    with pytest.raises(RuntimeError):
+        s3.send("anything")
+    ends = [r for r in read_records(out) if r["type"] == "end"]
+    assert [e["reason"] for e in ends] == ["max_round", "single", "ee"]
+
+
+def test_live_session_resumes_without_api_calls(prepared, tmp_path):
+    from sdarepro.live import LiveSession, read_records
+    _, ps = prepared
+    dlg = next(d for d in ps.dialogues if d["dtype"] == "A")
+    out = str(tmp_path / "live.jsonl")
+    two = {"candidate_ids": [dlg["target"], next(o.obj_id for o in ps.ctx.objects if o.obj_id != dlg["target"])]}
+    s = LiveSession(ScriptedClient([two, two]), ps, out, "t", dlg=dlg, images=ps.images_annot)
+    s.send(s.first_sentence(), auto=True)
+    s.send("the one near the sofa")                     # interrupted here, no end record
+    again = ScriptedClient([{"candidate_ids": [dlg["target"]]}])
+    r = LiveSession(again, ps, out, "t", dlg=dlg, images=ps.images_annot)
+    assert again.calls == [] and r.rounds == 2 and not r.ended and r.first_sentence() is None
+    r.send("the one by the window")
+    sent = again.calls[0][1]
+    assert len(sent) == 5 and sum(b["type"] == "image" for b in sent[0]["content"]) == 8   # images once, history kept
+    assert [m["content"][-1]["text"] for m in sent if m["role"] == "user"][1] == "User: the one near the sofa"
+    recs = read_records(out)
+    assert [x["round"] for x in recs if x["type"] == "turn"] == [1, 2, 3] and recs[-1]["reason"] == "single"
+
+
+@pytest.mark.skipif(not os.path.isdir(VISDIAL), reason="VisDial release not cloned")
+def test_live_terminal_and_web_write_the_same_records(tmp_path, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from sdarepro.live import drive_terminal, experiment_session, read_records, translated_targets
+    from sdarepro.visdial import load_type_a
+    from sdarepro.webapp import create_app
+    monkeypatch.setenv("SDA_API_KEY", "sk-test-never-shown")
+    ps = load_type_a(os.path.join(VISDIAL, "Type_A_Dataset", "Office"))
+    targets = translated_targets("results/visdial_target_fix.json", ps.name_map)
+    typed = {"A1": ["the chair on the right of the lamp"], "A11": ["the board in view 2", "the board next to the red heart"]}
+    term = tmp_path / "term"
+    for d in ps.dialogues:
+        q = d["dialogue_id"].split("-")[-1]
+        if q in typed:
+            it = iter(typed[q])
+            drive_terminal(experiment_session(ps, d, str(term / "live__dry_run__r1.jsonl"), "dry_run", 1, targets,
+                                              dry_run=True), lambda _p: next(it), say=lambda _s: None)
+    web = tmp_path / "web"
+    app = create_app(ps, model="dry_run", dry_run=True, out_dir=str(web), demo_dir=str(tmp_path / "demo"),
+                     img_dir=str(tmp_path / "img"), allowed_hosts=("testserver",))
+    c = TestClient(app)
+    seen = []
+    for q in ("A1", "A11"):
+        assert c.post(f"/api/q/{q}/open?start=0").json()["session"]["rounds"] == 0      # showing is free
+        seen.append(c.post(f"/api/q/{q}/open?start=1").text)
+        for t in typed[q]:
+            r = c.post(f"/api/q/{q}/send", json={"text": t})
+            seen.append(r.text)
+            if t == "the board in view 2":
+                assert r.status_code == 422 and "不能" in r.json()["error"]
+    assert _strip_times(read_records(str(web / "live__dry_run__r1.jsonl"))) == \
+        _strip_times(read_records(str(term / "live__dry_run__r1.jsonl")))
+    # demo records go elsewhere; the key is never sent; other hosts are refused
+    n_exp = len(read_records(str(web / "live__dry_run__r1.jsonl")))
+    c.post("/api/demo/new", json={"image_set": "all"})
+    seen.append(c.post("/api/demo/send", json={"text": "chair 3 in view 2"}).text)   # demo: no rule check
+    assert len(read_records(str(web / "live__dry_run__r1.jsonl"))) == n_exp == 6
+    assert os.listdir(tmp_path / "demo")
+    seen += [c.get("/api/meta").text, c.get("/api/progress").text, c.get("/").text]
+    assert not any("sk-test-never-shown" in s for s in seen)
+    assert TestClient(app, base_url="http://evil.example").get("/api/meta").status_code == 400
+    assert c.get("/img/../../secret/0.jpg").status_code == 404 and c.get("/img/chair/9.jpg").status_code == 404
