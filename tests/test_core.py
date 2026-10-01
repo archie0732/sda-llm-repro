@@ -510,6 +510,14 @@ def test_ids_from_accepts_name_tags():
     assert ids_from({"candidate_ids": ["chair 3", "Whiteboard_1", "#9", 4]}, nm) == [2, 4, 7, 9]
 
 
+def test_ids_from_bare_number_means_the_drawn_class_tag():
+    """C6f pilot: with only chairs drawn the model answered [1] for 'chair 1', which was read as internal id 1."""
+    nm = {"chair1": 2, "chair3": 4, "cabinet": 1}
+    assert ids_from({"candidate_ids": [1]}, nm) == [1]                          # old rule kept elsewhere
+    assert ids_from({"candidate_ids": [1, "3"]}, nm, bare_class="chair") == [2, 4]
+    assert ids_from({"candidate_ids": ["chair 3", 9]}, nm, bare_class="chair") == [4, 9]   # no chair 9: as before
+
+
 @pytest.mark.skipif(not os.path.isdir(VISDIAL), reason="VisDial release not cloned")
 def test_visdial_type_a_office():
     from sdarepro.visdial import load_type_a
@@ -520,6 +528,26 @@ def test_visdial_type_a_office():
     oracle = [{"candidate_ids": [next(o.tag for o in ps.ctx.objects if o.obj_id == ps.dialogues[0]["target"])]}]
     rec = run_dialogue(ScriptedClient(oracle), "multi_image", ps, ps.dialogues[0])
     assert rec["found"] and rec["T_A"] == pytest.approx(1.0)
+
+
+@pytest.mark.skipif(not os.path.isdir(VISDIAL), reason="VisDial release not cloned")
+def test_visdial_target_class_only_views():
+    """C6: only the target's class is boxed, and view 3 (a byte copy of view 2's box file) gets no box."""
+    from sdarepro.prompts import FORCED_CHOICE
+    from sdarepro.visdial import load_type_a
+    ps = load_type_a(os.path.join(VISDIAL, "Type_A_Dataset", "Office"))
+    same = lambda a, b: a.tobytes() == b.tobytes()   # noqa: E731
+    wb, ch = ps.class_only_annot["whiteboard"], ps.class_only_annot["chair"]
+    assert not same(wb[2], ps.images_raw[2]) and same(ch[2], ps.images_raw[2])   # view 2 has only whiteboard2
+    assert same(wb[3], ps.images_raw[3]) and same(ch[3], ps.images_raw[3])       # duplicated file: no boxes
+    assert not same(ps.images_annot[3], ps.images_raw[3])                         # multi_image keeps it
+    wb_dlg = next(d for d in ps.dialogues if d["dialogue_id"].endswith("-A11"))
+    two = [{"candidate_ids": ["whiteboard 1", "whiteboard 2"]}] * len(wb_dlg["turns"])
+    client = ScriptedClient(two)
+    run_dialogue(client, "target_class_only_forced", ps, wb_dlg)
+    sent = [b["image"] for b in client.calls[0][1][0]["content"] if b["type"] == "image"]
+    assert len(sent) == 8 and all(same(a, b) for a, b in zip(sent, wb))
+    assert client.calls[-1][1][-1]["content"][0]["text"] == FORCED_CHOICE
 
 
 @pytest.mark.skipif(not os.path.isdir(VISDIAL), reason="VisDial release not cloned")

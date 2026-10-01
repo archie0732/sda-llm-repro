@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDA-LLM 重現筆記 | archie0732</title>
+<meta name="description" content="用 Claude 小規模重現 SDA-LLM（IROS 2025）的實驗紀錄、判斷與心得">
+<style>
+:root{
+  --bg:#fbfaf7;--fg:#1d1d1b;--muted:#5f5d57;--line:#e3e0d8;--card:#ffffff;
+  --a1:#2f6fd0;--a1-soft:rgba(47,111,208,.14);--a2:#d9692b;--a2-soft:rgba(217,105,43,.14);
+  --ref:#8a8780;--code:#f1efe9;
+}
+@media (prefers-color-scheme: dark){
+  :root{--bg:#161616;--fg:#ecebe7;--muted:#a9a69e;--line:#34322e;--card:#1e1e1d;
+    --a1:#6fa1ef;--a1-soft:rgba(111,161,239,.18);--a2:#f0925a;--a2-soft:rgba(240,146,90,.18);--ref:#8f8c85;--code:#262624}
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.75 "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:40px 16px 80px}
+header .kicker{color:var(--muted);font-size:14px;letter-spacing:.04em}
+h1{font-size:30px;line-height:1.3;margin:6px 0 10px}
+h2{font-size:22px;margin:56px 0 12px;padding-top:8px;border-top:1px solid var(--line)}
+h3{font-size:17px;margin:28px 0 8px}
+p{margin:10px 0}
+.lead{font-size:18px;color:var(--fg)}
+.meta{color:var(--muted);font-size:14px}
+a{color:var(--a1)}
+code{background:var(--code);padding:1px 6px;border-radius:4px;font-size:.9em}
+nav.toc{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:24px 0}
+nav.toc ol{margin:6px 0 0;padding-left:20px}
+nav.toc a{text-decoration:none}
+.table-wrap{overflow-x:auto;margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:14.5px;min-width:520px}
+th,td{border-bottom:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.hl td{background:var(--a1-soft)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:16px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card .big{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.card .lbl{color:var(--muted);font-size:13.5px}
+.finding{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--a1);border-radius:8px;padding:14px 18px;margin:14px 0}
+.finding h3{margin:0 0 6px}
+.decision{border-left-color:var(--a2)}
+figure{margin:18px 0}
+figcaption{color:var(--muted);font-size:13.5px;margin-top:6px}
+svg{max-width:100%;height:auto;display:block}
+svg text{fill:var(--fg);font-family:inherit}
+svg .muted{fill:var(--muted)}
+.note{color:var(--muted);font-size:14px}
+footer{margin-top:64px;color:var(--muted);font-size:13.5px;border-top:1px solid var(--line);padding-top:16px}
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="kicker">研究重現筆記 · 2026 年 10 月</div>
+  <h1>用 Claude 重現 SDA-LLM，我學到的事</h1>
+  <p class="lead">我用 Claude 小規模重現了 SDA-LLM（IROS 2025）的「用多輪對話找出指定物件」，並加了幾個論文沒有做的對照。這頁記錄我做了什麼、每個關鍵判斷為什麼這樣下，以及我的心得。</p>
+  <p class="meta">許育祁（archie0732）· 程式與完整紀錄在 <a href="https://github.com/archie0732/sda-llm-repro">GitHub repo</a> · 原論文 <a href="https://arxiv.org/abs/2410.12802">arXiv 2410.12802</a> · 作者公開資料 <a href="https://github.com/CKL9001/SDA-LLM">CKL9001/SDA-LLM</a></p>
+</header>
+
+<nav class="toc" aria-label="目錄">
+  <strong>目錄</strong>
+  <ol>
+    <li><a href="#paper">論文在做什麼</a></li>
+    <li><a href="#what">我做了什麼</a></li>
+    <li><a href="#results">結果</a></li>
+    <li><a href="#findings">四個觀察</a></li>
+    <li><a href="#decisions">過程中的判斷</a></li>
+    <li><a href="#dedup">跨圖去重</a></li>
+    <li><a href="#limits">限制</a></li>
+    <li><a href="#reflection">心得</a></li>
+  </ol>
+</nav>
+
+<section id="paper">
+<h2>論文在做什麼</h2>
+<p>想像你對機器人說「幫我找那張椅子」，但房間裡有十幾張椅子。SDA-LLM 的做法是讓機器人原地每 45° 拍一張照片，共 8 張，在每個物件上貼一個編號（例如 chair 3），再把這 8 張圖交給視覺語言模型（論文用 GPT-4o）。使用者一句一句描述，模型每一輪回答「還剩哪些候選」，直到只剩一個。</p>
+<p>整個系統分兩層。第一層用作者自己訓練過的 YOLOv8 找物件，再算位置、刪掉在不同照片重複出現的同一個物件，最後貼上編號。第二層負責用對話縮小範圍。我重現的是第二層，第一層的編號直接用作者標好的，所以差距只會來自對話這一層。</p>
+
+<figure>
+<svg viewBox="0 0 760 300" role="img" aria-label="SDA-LLM 兩層流程與我做的部分">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--ref)"/></marker></defs>
+  <text x="24" y="24" font-size="13" font-weight="600" class="muted">第一層 找物件</text>
+  <g fill="none" stroke="var(--ref)" stroke-width="1.25">
+    <path d="M194 66H212" marker-end="url(#ar)"/><path d="M382 66H400" marker-end="url(#ar)"/><path d="M570 66H588" marker-end="url(#ar)"/>
+    <path d="M664 96V132H124V164" marker-end="url(#ar)"/>
+    <path d="M224 202H262" marker-end="url(#ar)"/><path d="M462 202H500" marker-end="url(#ar)"/>
+    <path d="M362 240V262H124V240" marker-end="url(#ar)"/>
+  </g>
+  <rect x="24" y="36" width="170" height="60" rx="8" fill="none" stroke="var(--ref)"/>
+  <text x="109" y="62" text-anchor="middle" font-size="14" font-weight="600">8 張環景照</text>
+  <text x="109" y="82" text-anchor="middle" font-size="12" class="muted">每 45° 一張</text>
+  <rect x="212" y="36" width="170" height="60" rx="8" fill="none" stroke="var(--ref)"/>
+  <text x="297" y="62" text-anchor="middle" font-size="14" font-weight="600">偵測與分割</text>
+  <text x="297" y="82" text-anchor="middle" font-size="12" class="muted">YOLOv8 + SAM + 深度</text>
+  <rect x="400" y="36" width="170" height="60" rx="8" fill="var(--a2-soft)" stroke="var(--a2)" stroke-width="2"/>
+  <text x="485" y="62" text-anchor="middle" font-size="14" font-weight="600">跨圖去重</text>
+  <text x="485" y="82" text-anchor="middle" font-size="12">我另外拆出來測</text>
+  <rect x="588" y="36" width="150" height="60" rx="8" fill="none" stroke="var(--ref)"/>
+  <text x="663" y="62" text-anchor="middle" font-size="14" font-weight="600">貼上編號</text>
+  <text x="663" y="82" text-anchor="middle" font-size="12" class="muted">例如 chair 3</text>
+  <text x="738" y="156" text-anchor="end" font-size="13" font-weight="600" class="muted">第二層 用對話縮小範圍</text>
+  <rect x="24" y="166" width="200" height="72" rx="8" fill="var(--a1-soft)" stroke="var(--a1)" stroke-width="2"/>
+  <text x="124" y="192" text-anchor="middle" font-size="14" font-weight="600">給模型 8 張圖</text>
+  <text x="124" y="212" text-anchor="middle" font-size="12">加上使用者的一句話</text>
+  <rect x="262" y="166" width="200" height="72" rx="8" fill="var(--a1-soft)" stroke="var(--a1)" stroke-width="2"/>
+  <text x="362" y="192" text-anchor="middle" font-size="14" font-weight="600">模型回候選編號</text>
+  <text x="362" y="212" text-anchor="middle" font-size="12">例如 chair 3、chair 4</text>
+  <rect x="500" y="166" width="238" height="72" rx="8" fill="var(--a1-soft)" stroke="var(--a1)" stroke-width="2"/>
+  <text x="619" y="192" text-anchor="middle" font-size="14" font-weight="600">只剩一個就停</text>
+  <text x="619" y="212" text-anchor="middle" font-size="12">機器人直接開過去</text>
+  <text x="243" y="286" text-anchor="middle" font-size="12" class="muted">還剩好幾個就給下一句</text>
+</svg>
+<figcaption>藍色是我重現的部分，橘色是我另外拆出來測的部分。</figcaption>
+</figure>
+
+<p>論文用兩種分數。T_A 用在「找出一個指定物件」的題目，T_B 用在「每輪回報符合的有幾個」的題目。作者自己拍的 Office 場景，GPT-4o 的 T_A 是 0.86。</p>
+</section>
+
+<section id="what">
+<h2>我做了什麼</h2>
+<p>我把實驗分成兩條線。Track V 用作者在 GitHub 公開的資料，Track R 用 Apple 的 ARKitScenes 自己生成更多題目。模型是 claude-sonnet-5-5，全部付費呼叫約 2 美元。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>實驗</th><th>做法</th><th>想回答的問題</th></tr></thead>
+<tbody>
+<tr><td>V1 重現</td><td>Office 15 題，用作者的提示詞原文與評分公式，換成 Claude</td><td>換模型之後分數差多少</td></tr>
+<tr><td>人類基準</td><td>我自己照同樣規則一句一句作答</td><td>這組題目人能拿幾分</td></tr>
+<tr><td>純文字、拼圖、圖加座標</td><td>拿掉圖、把圖拼成一張、圖加座標表</td><td>圖到底有沒有幫上忙</td></tr>
+<tr><td>C5 強迫選一個</td><td>跟重現完全相同，只在最後一句後要求「只回一個最可能的編號」</td><td>模型是看錯，還是不敢下決定</td></tr>
+<tr><td>V2 數量題</td><td>40 題每輪回報數量，我再逐題看模型最後指的是不是對的物件</td><td>數量答對是不是等於找對</td></tr>
+<tr><td>Track R</td><td>用有 3D 框與深度的公開資料集自動生成附正解的對話</td><td>把題目數量放大</td></tr>
+<tr><td>跨圖去重</td><td>實作三種方法，用標註當正解評分</td><td>論文沒寫清楚的這一步做得好不好</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="results">
+<h2>結果</h2>
+<div class="cards">
+  <div class="card"><div class="big">0.860</div><div class="lbl">論文 GPT-4o 的 T_A</div></div>
+  <div class="card"><div class="big">0.733</div><div class="lbl">我自己作答的 T_A</div></div>
+  <div class="card"><div class="big">0.723</div><div class="lbl">Claude 加上「只回一個」之後（原本 0.366）</div></div>
+</div>
+
+<figure>
+<svg viewBox="0 0 700 360" role="img" aria-label="V1 Office 15 題各條件的找到比例與 T_A"><text x="0" y="18" font-size="14" font-weight="600">強迫只回一個之後，Claude 找到的比例追上我自己</text><g font-size="12" class="muted"><rect x="170" y="32" width="12" height="12" fill="var(--a1)"/><text x="188" y="43">找到的比例</text><rect x="280" y="32" width="12" height="12" fill="var(--a2)"/><text x="298" y="43">T_A</text></g><g stroke="var(--line)"><line x1="170" y1="56" x2="170" y2="330"/><line x1="290" y1="56" x2="290" y2="330"/><line x1="410" y1="56" x2="410" y2="330"/><line x1="530" y1="56" x2="530" y2="330"/><line x1="650" y1="56" x2="650" y2="330"/></g><g font-size="11.5" class="muted" text-anchor="middle"><text x="170" y="348">0</text><text x="290" y="348">0.25</text><text x="410" y="348">0.5</text><text x="530" y="348">0.75</text><text x="650" y="348">1</text></g><line x1="582.8" y1="56" x2="582.8" y2="330" stroke="var(--ref)" stroke-dasharray="4 4"/><text x="586" y="68" font-size="11.5" class="muted">論文 0.86</text><g font-size="13"><text x="160" y="88" text-anchor="end">人類（我）</text><rect x="170" y="72" width="351.8" height="12" fill="var(--a1)"/><text x="527.8" y="83" font-size="11.5">0.733</text><rect x="170" y="86" width="351.8" height="12" fill="var(--a2)"/><text x="527.8" y="97" font-size="11.5">0.733</text><text x="160" y="132" text-anchor="end">C5 強迫選一個</text><rect x="170" y="116" width="405.1" height="12" fill="var(--a1)"/><text x="581.1" y="127" font-size="11.5">0.844</text><rect x="170" y="130" width="347.0" height="12" fill="var(--a2)"/><text x="523.0" y="141" font-size="11.5">0.723</text><text x="160" y="176" text-anchor="end">圖加座標表</text><rect x="170" y="160" width="234.7" height="12" fill="var(--a1)"/><text x="410.7" y="171" font-size="11.5">0.489</text><rect x="170" y="174" width="187.7" height="12" fill="var(--a2)"/><text x="363.7" y="185" font-size="11.5">0.391</text><text x="160" y="220" text-anchor="end">拼成一張</text><rect x="170" y="204" width="224.2" height="12" fill="var(--a1)"/><text x="400.2" y="215" font-size="11.5">0.467</text><rect x="170" y="218" width="181.0" height="12" fill="var(--a2)"/><text x="357.0" y="229" font-size="11.5">0.377</text><text x="160" y="264" text-anchor="end">8 張分開（論文設定）</text><rect x="170" y="248" width="213.1" height="12" fill="var(--a1)"/><text x="389.1" y="259" font-size="11.5">0.444</text><rect x="170" y="262" width="175.7" height="12" fill="var(--a2)"/><text x="351.7" y="273" font-size="11.5">0.366</text><text x="160" y="308" text-anchor="end">只給座標表</text><text x="176" y="303" font-size="11.5">0.000</text><text x="176" y="317" font-size="11.5">0.000</text></g></svg>
+<figcaption>Office 15 題，模型條件各跑 3 次取平均。「找到」是最後剛好只回一個而且是正解的比例。四題白板題的正解已換成我們圖上的編號（見觀察三），照作者原本編號算的分數是人類 0.600、C5 0.457、論文設定 0.100。</figcaption>
+</figure>
+
+<p>V2 的 40 題數量題，最後一輪數量答對的有 34 題（0.850）。但我逐題看模型最後描述的位置，真的指到對的物件只有 27 題。</p>
+</section>
+
+<section id="findings">
+<h2>四個觀察</h2>
+<p class="note">題目數量很少，下面這些我都當成想請教作者的問題，不是定論。</p>
+
+<div class="finding">
+<h3>一、照公開的對話檔重播，拿不到 0.86</h3>
+<p>我自己看圖、照同樣規則作答，也只有 0.733。有幾題只有一句「玻璃牆旁邊那張椅子」，我看完圖還是剩兩張，沒有下一句可以再縮小。我讀作者公開的程式，發現對話是由人在現場即時輸入，直到使用者確認才結束。所以我猜論文的評估可能包含了人當場的追問，跟「照檔案一句一句播」是不同的設定。</p>
+</div>
+
+<div class="finding">
+<h3>二、Claude 常常不是看錯，而是不肯選一個</h3>
+<p>在論文的設定下，Claude 最後的答案裡有正解的比例是 0.889，但剛好只選一個而且選對的比例只有 0.444。我只在最後加一句「請只回一個最可能的編號」，其他完全不變，找到的比例就從 0.44 升到 0.84，跟我自己的 0.73 差不多。換句話說，它多半知道答案在哪兩三張裡，只是不敢收斂。</p>
+</div>
+
+<div class="finding">
+<h3>三、公開的標註檔和答案檔，白板用的是兩套編號</h3>
+<p>Office 有四題在問白板，我和 Claude 一開始都一致答成答案檔的下一號。我一度以為是作者標錯，但對照原始檔案後發現，答案檔說「愛心旁邊的白板」是 whiteboard 1，而公開的標註框把愛心旁邊那塊叫做 whiteboard2。</p>
+<p>原始照片上其實沒有框，框是我的程式照標註檔畫上去的。我回頭讀作者的程式，發現當初給 GPT-4o 看的圖只框題目問的那一類，編號由偵測程式依順序自動產生，白板那組圖沒有公開。所以這比較可能是兩套編號系統，而不是誰標錯。</p>
+<p>我的處理方式是保留作者要找的物件，只把編號翻譯成我圖上的名稱，而且只用在這四題，判斷依據是描述和圖片，不看模型的答案。主要結果用翻譯後的正解，原本編號的分數也一併列出。</p>
+</div>
+
+<div class="finding">
+<h3>四、數量答對不等於找對</h3>
+<p>數量題只檢查「有幾個」。最後一輪數量答對的 34 題裡，我人工確認只有 23 題真的指到對的物件。反過來，數量答錯的 6 題裡有 4 題其實指對了。只看數量會高估模型真的找到東西的比例。</p>
+</div>
+</section>
+
+<section id="decisions">
+<h2>過程中的判斷</h2>
+<p>這次實驗程式大部分由 Claude Code 照我寫的計畫書實作，我負責研究問題、實驗設計，以及每一個需要人判斷的地方。下面是我覺得最重要的幾個決定。</p>
+
+<div class="finding decision">
+<h3>分數很低時，先懷疑自己</h3>
+<p>第一次全跑只有 0.10，我的第一個反應是程式寫錯了。所以我先自己當受試者作答，確認題目本身在這個設定下人能拿幾分，再從原始紀錄重算每個數字。這兩步讓我有信心說差距不是 bug。</p>
+</div>
+
+<div class="finding decision">
+<h3>對照實驗一次只改一件事</h3>
+<p>C5 跟原本的設定完全相同，只多了最後一句。我刻意不改最上面的系統提示，也不為任何條件個別調提示詞，這樣分數的差異才能歸因到「強迫選一個」。</p>
+</div>
+
+<div class="finding decision">
+<h3>只翻譯編號，不重新決定答案</h3>
+<p>白板題對不上時，最省事的做法是「我們覺得對的就是答案」。但這樣分數就變成我說了算，而且被評分的是 Claude，由我和 Claude 來當裁判也不公平。所以我定了規則，只把作者要找的物件換成我圖上的編號，其他題目就算我覺得有歧義也不改。我做人工檢查時也犯過錯，第一次把「寫字在哪一塊白板上」讀成「寫字那塊旁邊的白板」，後來才更正。這讓我知道人工檢查的題目本身要寫得很清楚。</p>
+</div>
+
+<div class="finding decision">
+<h3>寧可少框，也不要畫錯框</h3>
+<p>自己生成題目時，有些椅子塞在桌子底下，深度相機量到的其實是桌面，框就畫到桌布上去了。我加了兩條規則，離地 5 公分內的像素不算，同時落在兩個物件裡的像素也不算。代價是整張塞在桌下的椅子會沒有框，但我認為錯的框比少一個框更傷題目品質。</p>
+</div>
+</section>
+
+<section id="dedup">
+<h2>跨圖去重</h2>
+<p>8 張照片是繞一圈拍的，同一張椅子可能同時出現在兩張照片裡。如果不處理，它會拿到兩個編號，使用者說「那張椅子」時就永遠縮不到一個。論文只說「依距離刪除重複的物件」，沒有寫門檻與做法，所以我把這一步拆出來測。</p>
+<p>做法是先算出每個框裡的物件在房間裡的 3D 位置，再把「同類別而且距離小於 τ 公尺」的框當成同一個物件。三種方法的差別在 3D 位置怎麼算。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>方法</th><th>怎麼算位置</th><th>比喻</th></tr></thead>
+<tbody>
+<tr><td>D1 不去重</td><td>不合併，每張照片的每個框都當成不同物件</td><td>每張照片各自點名，同一個人被點兩次</td></tr>
+<tr><td>D2 框中央</td><td>只看框正中間那一小塊的深度</td><td>拿雷射筆往框中間打一下量距離，椅子塞在桌下時打到的是桌面</td></tr>
+<tr><td>D2b 物件像素</td><td>用真正屬於這個物件的所有像素取中間值</td><td>在椅子身上打很多點再取中間，比較不會被桌面騙</td></tr>
+</tbody></table></div>
+<p>我用 ARKitScenes 的標註當正解（標註知道哪些框其實是同一張椅子），8 個場景共有 91 對「應該合併」的框。</p>
+<div class="table-wrap"><table>
+<thead><tr><th>τ（公尺）</th><th class="num">D2 precision</th><th class="num">D2 recall</th><th class="num">D2 F1</th><th class="num">D2b precision</th><th class="num">D2b recall</th><th class="num">D2b F1</th></tr></thead>
+<tbody>
+<tr><td>0.3</td><td class="num">0.83</td><td class="num">0.27</td><td class="num">0.41</td><td class="num">0.95</td><td class="num">0.38</td><td class="num">0.55</td></tr>
+<tr><td>0.4</td><td class="num">0.73</td><td class="num">0.45</td><td class="num">0.56</td><td class="num">0.96</td><td class="num">0.49</td><td class="num">0.65</td></tr>
+<tr class="hl"><td>0.5</td><td class="num">0.64</td><td class="num">0.54</td><td class="num">0.58</td><td class="num">0.93</td><td class="num">0.59</td><td class="num">0.72</td></tr>
+<tr><td>0.6</td><td class="num">0.52</td><td class="num">0.58</td><td class="num">0.55</td><td class="num">0.56</td><td class="num">0.63</td><td class="num">0.59</td></tr>
+<tr><td>0.8</td><td class="num">0.34</td><td class="num">0.68</td><td class="num">0.45</td><td class="num">0.33</td><td class="num">0.79</td><td class="num">0.47</td></tr>
+</tbody></table></div>
+<p>precision 是「我說是同一個的，有幾成真的是」，recall 是「真的是同一個的，我抓到幾成」。最好的是 D2b、τ = 0.5，說合併時 93% 是對的，但還有四成重複沒抓到。不去重的話，每個場景平均多算 8 個物件。</p>
+<p>我的解讀很簡單。就算每個物件的輪廓都切得完美，只靠「距離夠近就合併」還是不夠。門檻設小，大沙發從兩個方向看會被當成兩個。門檻設大，並排的兩張椅子又會被併成一張。我猜還需要看外觀，例如顏色與形狀，這是我之後想試的方向。</p>
+</section>
+
+<section id="limits">
+<h2>限制</h2>
+<ul>
+  <li>Office 只有 15 題，差一題就是 0.067，小差距我都不下結論。</li>
+  <li>人類基準只有我一個人做一次，數量題的人工判斷也只有我，有 7 題我看不出來。</li>
+  <li>目前的模型不能固定隨機性，所以每個條件跑 3 次報範圍，數量題只跑 1 次。</li>
+  <li>我用 Claude，不是論文的 GPT-4o。</li>
+  <li>我給模型的圖把所有類別的框都畫上，作者只框題目問的那一類，我的圖比較雜亂。</li>
+  <li>作者 view 3 的標註檔是 view 2 的複本，所以我的 view 3 上有一個沒有框到白板的「whiteboard 2」，這一版沒有重跑。</li>
+  <li>自己生成的題目目前只有 8 個場景 42 組對話，主實驗還沒跑。</li>
+  <li>作者的資料沒有授權檔，ARKitScenes 只能非商業研究使用，所以這頁沒有放任何資料集的圖片。</li>
+</ul>
+</section>
+
+<section id="reflection">
+<h2>心得</h2>
+<p>我原本以為重現就是把程式跑一遍、對一下分數。實際做了才發現，分數對不上時，真正的工作才開始。我要一個一個排除可能的原因，先懷疑自己的程式，再懷疑評估方式，最後才懷疑資料。</p>
+<p>我印象最深的是 C5。只加一句話，分數就從 0.18 跳到 0.58。這讓我意識到，評估一個模型時，「它會不會」和「它肯不肯回答」是兩件事，而現在的指標常常把這兩件事混在一起。</p>
+<p>白板題讓我學到，結果對不上時不能急著下結論。我一開始以為是作者標錯，直到發現原始照片上沒有框，才意識到是我給模型的輸入跟作者的不一樣。如果我沒有回頭查，就會把自己的重現差異說成別人的錯誤。</p>
+<p>我也學到人工檢查不是理所當然正確的。我自己就在白板題上讀錯了一次題目。之後我做任何需要人判斷的檢查，都會先把問題寫清楚，並把我的判斷存下來讓別人可以複查。</p>
+<p>最後，這次我大量使用 Claude Code 寫程式。我發現 AI 讓實作變快，但決定要測什麼、怎麼解讀結果、哪些數字不能信，還是要靠自己。我覺得這正是做研究最有意思的部分。</p>
+</section>
+
+<footer>
+  <p>這是我個人獨立的學生重現練習，與原論文作者及 Apple 沒有隸屬關係。所有數字的來源與每一步紀錄都在 repo 的 <code>results/RESULTS.md</code> 與 <code>results/LOG.md</code>。如果我的理解有錯，非常歡迎指正。</p>
+  <p>最後更新 2026-10-01</p>
+</footer>
+
+</main>
+</body>
+</html>

@@ -11,7 +11,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from sdarepro.runner import CONDITIONS, append_jsonl, done_ids, run_count_dialogue, run_dialogue  # noqa: E402
+from sdarepro.runner import CLASS_ONLY, CONDITIONS, append_jsonl, done_ids, run_count_dialogue, run_dialogue  # noqa: E402
 from sdarepro.vlm import ClaudeClient  # noqa: E402
 from sdarepro.visdial import load_type_a, load_type_b  # noqa: E402
 
@@ -36,6 +36,11 @@ if a.track == "A":
         os.makedirs("results/visdial_check", exist_ok=True)
         for i, im in enumerate(ps.images_annot):
             im.save(f"results/visdial_check/office_view_{i}.jpg")
+        if cond in CLASS_ONLY:     # C6: one set per target class
+            os.makedirs("results/visdial_check/target_only", exist_ok=True)
+            for c in sorted({o.label for o in ps.ctx.objects if o.obj_id in {d["target"] for d in ps.dialogues}}):
+                for i, im in enumerate(ps.class_only_annot[c]):
+                    im.save(f"results/visdial_check/target_only/office_{c}_view_{i}.jpg")
     jobs = [(ps, d) for d in ps.dialogues]
 else:
     folders = sorted(os.path.dirname(p) for p in glob.glob(os.path.join(a.root, "Type_B_Dataset", "**", "*Multi-turn_dialogue.csv"), recursive=True))

@@ -16,6 +16,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from sdarepro.metrics import score_dialogue  # noqa: E402
 from sdarepro.visdial import load_type_a  # noqa: E402
+from sdarepro.runner import CLASS_ONLY  # noqa: E402
 from sdarepro.vlm import ids_from, parse_json  # noqa: E402
 
 ps = load_type_a("third_party/SDA-LLM/Dataset/Type_A_Dataset/Office")
@@ -25,7 +26,10 @@ for path in sorted(glob.glob("results/raw_visdial/*.jsonl")):
     recs, dirty = [json.loads(l) for l in open(path) if l.strip()], False
     for r in recs:
         if r.get("dtype") == "A" and r["cond"] != "count":
-            new = [ids_from(parse_json(x["text"]), ps.name_map) for x in r["replies"]]
+            # C6 views show one class only, so a bare number is that class's tag (same rule as runner)
+            bare = (next(o.label for o in ps.ctx.objects if o.obj_id == r["target"])
+                    if r["cond"] in CLASS_ONLY else None)
+            new = [ids_from(parse_json(x["text"]), ps.name_map, bare) for x in r["replies"]]
             if new == r["preds"]:
                 continue
             if [len(p) == 1 for p in new] != [len(p) == 1 for p in r["preds"]]:

@@ -36,6 +36,8 @@ class PreparedScene:
     grid_annot: Image.Image
     dialogues: list[dict]
     name_map: Optional[dict] = None   # drawn tag name -> obj_id, for name-style tags (VisDial)
+    # VisDial C6: per object class, the views with only that class boxed (see visdial.load_type_a)
+    class_only_annot: Optional[dict] = None
 
 
 def _obj_to_json(o: Object3D) -> dict:

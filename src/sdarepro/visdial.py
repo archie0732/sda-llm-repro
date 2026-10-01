@@ -53,9 +53,14 @@ def _tag_text(name: str) -> str:
 def load_type_a(scene_dir: str, max_side: int = 1080) -> PreparedScene:
     scene_id = "visdial_" + os.path.basename(os.path.normpath(scene_dir))
     # boxes per view
-    views = []
+    views, seen, dup_views = [], {}, set()
     for p in sorted(glob.glob(os.path.join(scene_dir, "Object_Bounding_Box", "color_image_*.json")),
                     key=lambda q: int(re.findall(r"(\d+)\.json$", q)[0])):
+        raw_bytes = open(p, "rb").read()
+        v_id = int(re.findall(r"(\d+)\.json$", p)[0])
+        if raw_bytes in seen:      # a copy of an earlier view's file (Office: color_image_3 == color_image_2)
+            dup_views.add(v_id)
+        seen.setdefault(raw_bytes, v_id)
         d = json.load(open(p))
         boxes = {}
         for sh in d["shapes"]:
@@ -86,17 +91,28 @@ def load_type_a(scene_dir: str, max_side: int = 1080) -> PreparedScene:
     raw, annot = [], []
     tags = {o.obj_id: o.tag for o in objects}
     labels = {o.obj_id: o.label for o in objects}
+    classes = sorted(set(labels.values()))
+    class_only = {c: [] for c in classes}
+
+    def fit(im):
+        if max(im.size) <= max_side:
+            return im
+        s = max_side / max(im.size)
+        return im.resize((int(im.width * s), int(im.height * s)))
+
     for v, boxes, w, h in views:
         img = Image.open(os.path.join(scene_dir, "RGB_image", f"color_image_{v}.jpg")).convert("RGB")
         f = Frame(frame_id=str(v), timestamp=float(v), pose=np.eye(4), K=np.eye(3), width=w or img.width,
                   height=h or img.height)
         vb = ViewBoxes(frame=f, boxes={name_map[n]: b for n, b in boxes.items()})
-        a = draw_view(img, vb, labels, scale=img.width / f.width, tags=tags)
-        if max(a.size) > max_side:
-            s = max_side / max(a.size)
-            img, a = img.resize((int(img.width * s), int(img.height * s))), a.resize((int(a.width * s), int(a.height * s)))
-        raw.append(img)
-        annot.append(a)
+        annot.append(fit(draw_view(img, vb, labels, scale=img.width / f.width, tags=tags)))
+        # C6 target_class_only: the authors' VLM.ipynb reads images that box only the target class
+        # (label/chair/). A view whose box file duplicates an earlier view's gets no boxes at all.
+        for c in classes:
+            keep = {} if v in dup_views else {o: b for o, b in vb.boxes.items() if labels[o] == c}
+            class_only[c].append(fit(draw_view(img, ViewBoxes(frame=f, boxes=keep), labels,
+                                               scale=img.width / f.width, tags=tags)))
+        raw.append(fit(img))
     # dialogues
     dialogues = []
     dfile = glob.glob(os.path.join(scene_dir, "*Multi-turn_dialogue.csv"))
@@ -111,7 +127,8 @@ def load_type_a(scene_dir: str, max_side: int = 1080) -> PreparedScene:
                 continue
             dialogues.append({"dialogue_id": f"{scene_id}-A{k}", "scene_id": scene_id, "dtype": "A", "target": target,
                               "turns": [{"text": t, "gt_set": [target], "kind": "human"} for t in turns]})
-    return PreparedScene(scene_id, ctx, heads, raw, annot, make_grid(annot), dialogues, name_map=name_map)
+    return PreparedScene(scene_id, ctx, heads, raw, annot, make_grid(annot), dialogues, name_map=name_map,
+                         class_only_annot=class_only)
 
 
 def load_type_b(folder: str, max_side: int = 1280) -> dict:

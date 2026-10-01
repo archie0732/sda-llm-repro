@@ -29,6 +29,10 @@ SYSTEM_IMAGES = (
     "one photo per heading. Every detected object has a box and an ID tag. " + PAPER_INSTRUCTION + " " + OUTPUT_RULES
 )
 
+# Live protocol (scripts/live_dialogue.py): the authors' start_instruction verbatim, which is the only system text
+# in VLM.ipynb, plus the shared JSON rules so the candidates can be read without guessing from free text.
+SYSTEM_LIVE = PAPER_INSTRUCTION + " " + OUTPUT_RULES
+
 # Condition C5 forced_choice: sent as a system message right after the user's LAST sentence only.
 FORCED_CHOICE = (
     "This is the user's last sentence; there will be no more hints. The robot must now drive to one object. "

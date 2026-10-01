@@ -41,7 +41,8 @@ ap.add_argument("--price_cache_write", type=float, default=2.5)
 a = ap.parse_args()
 
 PAPER_OFFICE = {"SR": 0.866, "AS": 0.835, "T_A": 0.86}   # Table I, GPT-4o, Office
-CONDS = ("multi_image", "grid", "text_only", "multi_image_text", "forced_choice")
+CONDS = ("multi_image", "grid", "text_only", "multi_image_text", "forced_choice", "target_class_only",
+         "target_class_only_forced")
 ps = load_type_a(os.path.join(a.root, "Type_A_Dataset", "Office"))
 tag = {o.obj_id: o.tag for o in ps.ctx.objects}
 dlgs = {d["dialogue_id"]: d for d in ps.dialogues}

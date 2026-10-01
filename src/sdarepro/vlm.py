@@ -51,8 +51,13 @@ def norm_name(x) -> str:
     return re.sub(r"[\s_#]+", "", str(x).lower())
 
 
-def ids_from(parsed: Optional[dict], name_map: Optional[dict[str, int]] = None) -> list[int]:
-    """Candidate ids from a reply. Accepts 7, '#7', or a drawn name tag like 'chair 3' (needs name_map)."""
+def ids_from(parsed: Optional[dict], name_map: Optional[dict[str, int]] = None,
+             bare_class: Optional[str] = None) -> list[int]:
+    """Candidate ids from a reply. Accepts 7, '#7', or a drawn name tag like 'chair 3' (needs name_map).
+
+    `bare_class`: when the views show the tags of ONE class only (VisDial C6), a bare number n means the tag
+    '<class> n', not the internal id n. The model wrote [1] for 'chair 1' in the C6f pilot.
+    """
     if not parsed:
         return []
     out = []
@@ -60,6 +65,9 @@ def ids_from(parsed: Optional[dict], name_map: Optional[dict[str, int]] = None) 
         key = norm_name(x)
         if name_map and key in name_map:
             out.append(name_map[key])
+            continue
+        if name_map and bare_class and key.isdigit() and norm_name(f"{bare_class} {key}") in name_map:
+            out.append(name_map[norm_name(f"{bare_class} {key}")])
             continue
         try:
             out.append(int(key))

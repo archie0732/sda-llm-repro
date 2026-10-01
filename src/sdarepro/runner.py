@@ -6,6 +6,8 @@ Conditions (PLAN.md section 5):
     C3 text_only         object table only, no image (the missing baseline)
     C4 multi_image_text  C1 + object table
     C5 forced_choice     C1, but after the last user sentence a system message demands exactly one ID
+    C6 target_class_only C1, but the views box only the target's class (VisDial, like the authors' label/chair/)
+    C6f target_class_only_forced   C6 + the C5 system message
     E6 active            robot may ask questions, simulated user answers
 """
 from __future__ import annotations
@@ -21,13 +23,20 @@ from .prompts import (FORCED_CHOICE, SIM_USER, SYSTEM_ACTIVE, SYSTEM_IMAGES, SYS
                       view_caption)
 from .vlm import Reply, VLMClient, ids_from
 
-CONDITIONS = ("multi_image", "grid", "text_only", "multi_image_text", "forced_choice")
+CONDITIONS = ("multi_image", "grid", "text_only", "multi_image_text", "forced_choice",
+              "target_class_only", "target_class_only_forced")
+FORCED = ("forced_choice", "target_class_only_forced")
+CLASS_ONLY = ("target_class_only", "target_class_only_forced")
 
 
-def context_blocks(cond: str, ps: PreparedScene) -> tuple[str, list[dict]]:
+def context_blocks(cond: str, ps: PreparedScene, dlg: Optional[dict] = None) -> tuple[str, list[dict]]:
     blocks: list[dict] = []
-    if cond in ("multi_image", "multi_image_text", "forced_choice"):
-        for i, (img, h) in enumerate(zip(ps.images_annot, ps.view_headings_rel)):
+    if cond in ("multi_image", "multi_image_text", "forced_choice") + CLASS_ONLY:
+        images = ps.images_annot
+        if cond in CLASS_ONLY:
+            label = next(o.label for o in ps.ctx.objects if o.obj_id == dlg["target"])
+            images = ps.class_only_annot[label]
+        for i, (img, h) in enumerate(zip(images, ps.view_headings_rel)):
             blocks.append({"type": "text", "text": view_caption(i, h)})
             blocks.append({"type": "image", "image": img})
     elif cond == "grid":
@@ -41,18 +50,19 @@ def context_blocks(cond: str, ps: PreparedScene) -> tuple[str, list[dict]]:
 
 def run_dialogue(client: VLMClient, cond: str, ps: PreparedScene, dlg: dict,
                  stop_on_singleton: bool = True) -> dict:
-    system, ctx_blocks = context_blocks(cond, ps)
+    system, ctx_blocks = context_blocks(cond, ps, dlg)
+    bare = next(o.label for o in ps.ctx.objects if o.obj_id == dlg["target"]) if cond in CLASS_ONLY else None
     messages: list[dict] = []
     preds, replies = [], []
     for i, turn in enumerate(dlg["turns"]):
         content = (ctx_blocks if i == 0 else []) + [{"type": "text", "text": f"User: {turn['text']}"}]
         messages.append({"role": "user", "content": content})
         send = messages
-        if cond == "forced_choice" and i == len(dlg["turns"]) - 1:
+        if cond in FORCED and i == len(dlg["turns"]) - 1:
             # a mid-conversation system message keeps the cached images valid (the top-level system would not)
             send = messages + [{"role": "system", "content": [{"type": "text", "text": FORCED_CHOICE}]}]
         r: Reply = client.respond(system, send)
-        ids = ids_from(r.parsed, ps.name_map)
+        ids = ids_from(r.parsed, ps.name_map, bare)
         preds.append(ids)
         replies.append({"text": r.text, "in": r.input_tokens, "out": r.output_tokens,
                         "cache_read": r.cache_read_tokens, "cache_write": r.cache_write_tokens,
