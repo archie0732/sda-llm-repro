@@ -2,6 +2,7 @@ import json
 import math
 import os
 import random
+import re
 
 import cv2
 import numpy as np
@@ -694,3 +695,45 @@ def test_live_terminal_and_web_write_the_same_records(tmp_path, monkeypatch):
     assert not any("sk-test-never-shown" in s for s in seen)
     assert TestClient(app, base_url="http://evil.example").get("/api/meta").status_code == 400
     assert c.get("/img/../../secret/0.jpg").status_code == 404 and c.get("/img/chair/9.jpg").status_code == 404
+
+
+@pytest.mark.skipif(not os.path.isdir(VISDIAL), reason="VisDial release not cloned")
+def test_web_post_origin_check_and_bind_host(tmp_path):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from sdarepro.visdial import load_type_a
+    from sdarepro.webapp import bind_host, create_app
+    ps = load_type_a(os.path.join(VISDIAL, "Type_A_Dataset", "Office"))
+    app = create_app(ps, model="dry_run", dry_run=True, out_dir=str(tmp_path / "out"), demo_dir=str(tmp_path / "demo"),
+                     img_dir=str(tmp_path / "img"), allowed_hosts=("testserver",), port=8765)
+    c = TestClient(app)
+    body = {"text": "the one by the window"}
+    assert c.post("/api/check", json=body).status_code == 200                       # no Origin header: allowed
+    for o in ("http://127.0.0.1:8765", "http://localhost:8765"):
+        assert c.post("/api/check", json=body, headers={"Origin": o}).status_code == 200
+    for o in ("http://evil.example", "http://127.0.0.1:9999", "https://localhost:8765", "null",
+              "http://127.0.0.1:8765.evil.example"):
+        r = c.post("/api/check", json=body, headers={"Origin": o})
+        assert r.status_code == 403, o
+    assert c.post("/api/demo/new", json={"image_set": "chair"}, headers={"Origin": "http://evil.example"}).status_code == 403
+    assert not os.path.exists(tmp_path / "demo") or not os.listdir(tmp_path / "demo")   # refused before any work
+    assert c.get("/api/meta", headers={"Origin": "http://evil.example"}).status_code == 200   # GET is not checked
+    assert bind_host({}) == "127.0.0.1" and bind_host({"SDA_WEB_HOST": "127.0.0.1"}) == "127.0.0.1"
+    assert bind_host({"SDA_WEB_HOST": "0.0.0.0"}) == "0.0.0.0"
+    with pytest.raises(SystemExit):
+        bind_host({"SDA_WEB_HOST": "192.168.1.5"})
+
+
+def test_docker_files_keep_data_and_keys_out():
+    root = os.path.join(os.path.dirname(__file__), "..")
+    read = lambda f: open(os.path.join(root, f), encoding="utf-8").read()   # noqa: E731
+    ignore = [ln.strip() for ln in read(".dockerignore").splitlines()]
+    for p in ("third_party/", "data/", "results/", ".venv/", ".git/", ".env"):
+        assert p in ignore, p
+    dockerfile, compose = read("Dockerfile"), read("docker-compose.yml")
+    assert "SDA_API_KEY" not in dockerfile and "ANTHROPIC_API_KEY" not in dockerfile + compose
+    assert re.findall(r"^\s*- SDA_API_KEY\s*$", compose, re.M) and not re.search(r"SDA_API_KEY\s*[=:]", compose)
+    ports = re.findall(r'"([\d.]*:?\d+:\d+)"', compose)
+    assert ports and all(p == "127.0.0.1:8765:8765" for p in ports)
+    assert "./third_party:/app/third_party:ro" in compose and "USER sda" in dockerfile

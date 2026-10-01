@@ -17,5 +17,8 @@ web = ["fastapi", "uvicorn"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+sdarepro = ["web/*"]   # the page itself, needed by a non-editable install (Docker)
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]

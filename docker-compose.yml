@@ -1,0 +1,30 @@
+# Two ways to start the local web page, pick one profile (both use port 8765):
+#   docker compose --profile dry up --build    dry-run model, no API call, no key
+#   docker compose --profile live up --build   real model, needs SDA_API_KEY and SDA_MODEL on the host (or in .env)
+# Run `bash scripts/fetch_visdial.sh` first so third_party/SDA-LLM exists.
+# The port is published on 127.0.0.1 only: the page serves the authors' unlicensed images and can spend the key.
+
+x-web: &web
+  build: .
+  image: sdarepro-web
+  ports:
+    - "127.0.0.1:8765:8765"
+  volumes:
+    - ./third_party:/app/third_party:ro
+    - ./results:/app/results
+
+services:
+  web:
+    <<: *web
+    profiles: ["live"]
+    environment:
+      - SDA_API_KEY
+      - SDA_MODEL
+      - SDA_THINKING
+
+  web-dry:
+    <<: *web
+    profiles: ["dry"]
+    # records go to results/demo/ (git-ignored), never next to the experiment records in results/raw_visdial/
+    command: ["python", "scripts/live_web.py", "--dry_run",
+              "--out", "results/demo/docker_dry_run", "--demo_out", "results/demo/docker_dry_run"]

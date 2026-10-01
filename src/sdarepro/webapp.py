@@ -2,7 +2,9 @@
 every action goes through sdarepro.live.LiveSession.
 
 Safety rules (CLAUDE.md 6 and 10, PLAN.md 5.0):
-- served on 127.0.0.1 only, with a Host header check against DNS rebinding;
+- served on 127.0.0.1 only (bind_host: 0.0.0.0 only when SDA_WEB_HOST=0.0.0.0, set in the Dockerfile, where the
+  published port is still 127.0.0.1:8765), with a Host header check against DNS rebinding and an Origin check on
+  every POST against cross-site requests from other pages open in the same browser;
 - the API key is read by ClaudeClient inside this process only, never sent to the page, written or printed;
 - the authors' images are served from results/visdial_check/target_only/ (git-ignored), never copied to docs/.
 
@@ -20,12 +22,23 @@ from .live import (DryRunClient, InputRejected, LiveSession, check_input, experi
 
 STATIC = os.path.join(os.path.dirname(__file__), "web")
 SETS = ("chair", "whiteboard", "all")
+LOOPBACK = "127.0.0.1"
+
+
+def bind_host(env=None) -> str:
+    """127.0.0.1 unless SDA_WEB_HOST is exactly 0.0.0.0 (the Dockerfile sets it). No command-line option on purpose."""
+    v = (os.environ if env is None else env).get("SDA_WEB_HOST", "").strip()
+    if v in ("", LOOPBACK):
+        return LOOPBACK
+    if v == "0.0.0.0":
+        return v
+    raise SystemExit(f"SDA_WEB_HOST may only be 127.0.0.1 or 0.0.0.0, got {v!r}")
 
 
 def create_app(ps, model: str, rep: int = 1, dry_run: bool = False, out_dir: str = "results/raw_visdial",
                demo_dir: str = "results/demo", img_dir: str = "results/visdial_check/target_only",
                targets_path: str = "results/visdial_target_fix.json", max_round: int = 10,
-               allowed_hosts: tuple = ("127.0.0.1", "localhost"), client=None):
+               allowed_hosts: tuple = ("127.0.0.1", "localhost"), port: int = 8765, client=None):
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.trustedhost import TrustedHostMiddleware
     from fastapi.responses import FileResponse, JSONResponse
@@ -118,6 +131,16 @@ def create_app(ps, model: str, rep: int = 1, dry_run: bool = False, out_dir: str
 
     app = FastAPI(title="SDA-LLM live dialogue (local)", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(allowed_hosts))
+    origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+    @app.middleware("http")
+    async def same_origin_posts(request, call_next):
+        """A POST that carries an Origin header must come from this page itself, otherwise any site open in the
+        same browser could drive the dialogue (and spend the key) by posting to 127.0.0.1."""
+        o = request.headers.get("origin")
+        if request.method == "POST" and o is not None and o not in origins:
+            return JSONResponse({"error": "origin not allowed"}, status_code=403)
+        return await call_next(request)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     class Text(BaseModel):

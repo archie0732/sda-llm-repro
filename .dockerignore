@@ -1,0 +1,17 @@
+# Allowlist: the image only needs the package and the scripts.
+*
+!pyproject.toml
+!src/
+!scripts/
+
+# Never in the image, even if the allowlist above is widened. The authors' release has no licence,
+# results/ holds their rendered images, and keys live only in the host environment or .env.
+third_party/
+data/
+results/
+.venv/
+.git/
+.env
+**/.env
+**/__pycache__
+**/*.egg-info

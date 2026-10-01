@@ -1,7 +1,8 @@
 """Local web page for live Track V dialogues (PLAN.md 5.0). Needs `pip install -e ".[web]"`.
 
-Binds to 127.0.0.1 only; there is no option to listen on other interfaces. Do not deploy it anywhere: it
-serves the authors' images (no licence) and, without --dry_run, spends the key in SDA_API_KEY.
+Binds to 127.0.0.1. Only the environment variable SDA_WEB_HOST=0.0.0.0 (set in the Dockerfile, whose published
+port is 127.0.0.1:8765) makes it listen on all interfaces; there is no command-line option for it. Do not deploy it
+anywhere: it serves the authors' images (no licence) and, without --dry_run, spends the key in SDA_API_KEY.
 
 python scripts/live_web.py --dry_run          # dry-run model, no API call
 python scripts/live_web.py                    # real model from SDA_MODEL (needs SDA_API_KEY)
@@ -12,9 +13,9 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from sdarepro.visdial import load_type_a  # noqa: E402
-from sdarepro.webapp import create_app  # noqa: E402
+from sdarepro.webapp import bind_host, create_app  # noqa: E402
 
-HOST = "127.0.0.1"   # fixed on purpose
+HOST = bind_host()
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", default=os.environ.get("SDA_MODEL"))
@@ -43,6 +44,7 @@ a.out, a.demo_out = a.out or "results/raw_visdial", a.demo_out or "results/demo"
 
 ps = load_type_a(os.path.join(a.root, "Type_A_Dataset", "Office"))
 app = create_app(ps, model=a.model or "dry_run", rep=a.rep, dry_run=a.dry_run, out_dir=a.out, demo_dir=a.demo_out,
-                 max_round=a.max_round)
-print(f"open http://{HOST}:{a.port}/  ({'dry run, no API calls' if a.dry_run else 'model ' + a.model}), records in {a.out}")
+                 max_round=a.max_round, port=a.port)
+print(f"listening on {HOST}:{a.port}" + ("  (all interfaces: only meant for the Docker image)" if HOST != "127.0.0.1" else ""))
+print(f"open http://127.0.0.1:{a.port}/  ({'dry run, no API calls' if a.dry_run else 'model ' + a.model}), records in {a.out}")
 uvicorn.run(app, host=HOST, port=a.port, log_level="warning")

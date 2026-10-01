@@ -106,6 +106,30 @@ python scripts/summarize.py
 
 在 Windows 上如果 `python3` 會叫到 Microsoft Store 的空殼，可以用 `PYTHON=.venv/Scripts/python.exe bash scripts/download_arkit.sh ...` 指定直譯器。
 
+### 用 Docker 啟動即時對話網頁
+
+即時對話的本機網頁（`scripts/live_web.py`）也可以用 Docker 跑。image 只含 `pyproject.toml`、`src/`、`scripts/`，作者資料與結果在啟動時用 volume 掛進去，`third_party/` 是唯讀，`results/` 可寫（網頁啟動時會在 `results/visdial_check/target_only/` 產生圖，紀錄也寫在 `results/` 底下）。所以要先在主機上取得作者資料。下面是 Windows PowerShell 的指令，在 repo 根目錄執行。
+
+```powershell
+# 先取得作者資料（需要 Git Bash，資料放在 third_party/，不進 git 也不進 image）
+bash scripts/fetch_visdial.sh
+
+# dry run，不呼叫 API，不需要金鑰，紀錄寫在 results/demo/docker_dry_run/
+docker compose --profile dry up --build
+
+# 正式模式，金鑰只放在這個 PowerShell 視窗的環境變數，或寫在 .env（已在 .gitignore）
+$env:SDA_API_KEY = "..."
+$env:SDA_MODEL = "<model id>"
+docker compose --profile live up --build
+
+# 結束
+docker compose --profile dry down     # 或 --profile live down
+```
+
+啟動後用瀏覽器打開 http://127.0.0.1:8765 。兩種模式都用 8765，一次只開一種。想確認 image 裡沒有資料或金鑰，可以執行 `docker run --rm sdarepro-web ls -R /app`。
+
+`docker-compose.yml` 把 port 寫成 `"127.0.0.1:8765:8765"`，只讓這台電腦連得到。如果寫成 `"8765:8765"`，Docker 會在主機的所有網路介面開這個 port，同一個 Wi-Fi 的人都能打開網頁，看到沒有授權的作者影像，正式模式下還能用你的金鑰呼叫模型。在 Linux 上 Docker 開的 port 還會繞過 ufw 之類的防火牆規則。容器裡的伺服器要綁 0.0.0.0，port 對應才連得進去，所以 Dockerfile 設了 `SDA_WEB_HOST=0.0.0.0`，在本機直接執行時不要設這個變數，預設就是只綁 127.0.0.1。網頁另外只接受 Host 為 127.0.0.1 或 localhost 的請求，POST 請求如果帶 Origin 標頭，只接受 http://127.0.0.1:8765 與 http://localhost:8765，擋掉同一個瀏覽器裡其他網站送來的請求。
+
 ## 專案結構
 
 ```

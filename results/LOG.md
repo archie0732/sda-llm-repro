@@ -352,3 +352,15 @@
 - 新增 4 項測試。輸入檢查（允許 the one on the right、between two windows，擋下 chair 3、view 2、the third photo、第二張圖、三號）、結束條件（只回一個 ID、ee、第 11 輪後超過 10 輪）、續跑（從存下的文字重建對話、不呼叫 API、第 3 輪接著寫）、終端機版與網頁版對 A1 與 A11 寫出的紀錄除時間欄位外完全相同。同一個測試也檢查展示模式不寫進實驗紀錄、回應裡沒有金鑰、其他 Host 被擋下、圖片路徑不能跳出資料夾。`pytest -q` 46 passed。
 - 用 `--dry_run` 啟動，再用 Playwright 跑完 A1 與 A11。A1 第一輪 chair 1、chair 2 兩個框亮橘色，輸入一句後 chair 2 變綠色，找到。A11 輸入「the board in view 2」時輸入框下方出現規則提示，換一句後 whiteboard 2 變綠色，找到。關掉正解後藍色虛線與標題的正解都消失。展示模式選全部類別也能亮框。瀏覽器主控台沒有錯誤。截圖在 scratchpad，含作者影像，沒有進 repo。
 - 這一輪沒有呼叫付費 API。
+
+## 2026-10-02 本機網頁版的 Docker 啟動方式（未呼叫 API，Docker 部分未實際測試）
+
+- 這台電腦沒有 Docker（PowerShell 與 Git Bash 都找不到 `docker`，沒有 Docker Desktop，WSL 也沒有安裝），所以這一輪只寫檔案並跑 pytest，沒有 build image，也沒有用容器跑 Playwright。下面列的檢查都是在主機上直接做的，Docker 的部分要等有 Docker 的機器再驗證。
+- `scripts/live_web.py` 的綁定位址改由 `webapp.bind_host()` 決定。預設仍是 127.0.0.1，只有環境變數 `SDA_WEB_HOST` 剛好是 0.0.0.0 時才綁所有介面，這個變數只在 Dockerfile 裡設定。設成其他值會直接結束。沒有新增命令列參數。啟動時先印出目前綁定的位址。
+- TrustedHostMiddleware 照舊只接受 127.0.0.1 與 localhost。新增 Origin 檢查，所有 POST 請求如果帶 Origin 標頭，只接受 `http://127.0.0.1:<port>` 與 `http://localhost:<port>`，其他一律 403，在做任何事之前就擋下。這是為了防止同一個瀏覽器裡別的網站對 127.0.0.1 送 POST，替使用者開題目、送句子而花到金鑰。
+- 新增 `.dockerignore`（只放行 `pyproject.toml`、`src/`、`scripts/`，另外明列排除 `third_party/`、`data/`、`results/`、`.venv/`、`.git/`、`.env`）、`Dockerfile`（python:3.12-slim，安裝 libglib2.0-0 給 opencv-python-headless，`pip install ".[web]"`，用 uid 1000 的非 root 使用者 sda 執行）與 `docker-compose.yml`（profile `live` 是正式模式，從主機環境或 `.env` 帶入 `SDA_API_KEY`、`SDA_MODEL`、`SDA_THINKING`，profile `dry` 是 dry run，不帶金鑰，紀錄寫到 `results/demo/docker_dry_run/`，這個資料夾已在 `.gitignore`）。兩種模式的 port 都是 `"127.0.0.1:8765:8765"`，`third_party` 唯讀掛載，`results` 可寫。容器裡的暫存資料夾不在主機上，所以 dry run 不用預設的暫存資料夾，改指到掛載進來的 `results/demo/`。
+- 發現 `pip install .`（非 editable）不會帶上網頁的 HTML、CSS、JS，因為 pyproject 沒有設定 package data，Docker image 會缺頁面。補上 `[tool.setuptools.package-data]`，在 scratchpad 建 wheel 確認 `sdarepro/web/app.js`、`index.html`、`style.css` 都在裡面。
+- README 加了「用 Docker 啟動即時對話網頁」一段，寫 PowerShell 指令、要先跑 `fetch_visdial.sh`，以及為什麼 port 要綁 127.0.0.1。
+- 新增 2 項測試。第一項檢查 Origin（沒有 Origin、127.0.0.1 與 localhost 加正確 port 都放行，其他網域、其他 port、https、null、`http://127.0.0.1:8765.evil.example` 都回 403，被擋的展示請求沒有寫出紀錄，GET 不受影響）以及 `bind_host` 的三種情況。第二項靜態檢查 Docker 檔案（`.dockerignore` 含上述路徑，Dockerfile 沒有金鑰，compose 的 `SDA_API_KEY` 不帶值，所有 port 都是 `127.0.0.1:8765:8765`，third_party 唯讀，非 root 使用者）。`pytest -q` 48 passed。
+- 在主機上用 `--dry_run --port 8799` 啟動做冒煙測試，啟動訊息印出 `listening on 127.0.0.1:8799`，只在 127.0.0.1 監聽。Origin 為 evil.example 的 POST 回 403，127.0.0.1 與 localhost 回 200，Host 為 evil.example 的 GET 回 400。`SDA_WEB_HOST=10.0.0.1` 會被拒絕並結束。
+- 這一輪沒有呼叫付費 API。
